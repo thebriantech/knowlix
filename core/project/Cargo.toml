@@ -1,0 +1,17 @@
+[package]
+name = "knowlix-project"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knowlix-common = { path = "../common" }
+knowlix-storage = { path = "../storage" }
+serde = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+uuid = { workspace = true }

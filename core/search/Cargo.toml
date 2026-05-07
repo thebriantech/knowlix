@@ -1,0 +1,19 @@
+[package]
+name = "knowlix-search"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knowlix-common = { path = "../common" }
+knowlix-storage = { path = "../storage" }
+serde = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tantivy = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+knowlix-indexer = { path = "../indexer" }
+tempfile = { workspace = true }
+uuid = { workspace = true }
+chrono = { workspace = true }

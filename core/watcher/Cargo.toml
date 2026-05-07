@@ -1,0 +1,11 @@
+[package]
+name = "knowlix-watcher"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knowlix-common = { path = "../common" }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+notify = { workspace = true }
+tracing = { workspace = true }

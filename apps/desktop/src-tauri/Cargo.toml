@@ -1,0 +1,30 @@
+[package]
+name = "knowlix-desktop"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+name = "knowlix_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[dependencies]
+knowlix-common = { path = "../../../core/common" }
+knowlix-project = { path = "../../../core/project" }
+knowlix-indexer = { path = "../../../core/indexer" }
+knowlix-search = { path = "../../../core/search" }
+knowlix-watcher = { path = "../../../core/watcher" }
+knowlix-storage = { path = "../../../core/storage" }
+knowlix-viewer = { path = "../../../core/viewer" }
+knowlix-wiki = { path = "../../../core/wiki" }
+knowlix-ai_agent = { path = "../../../core/ai_agent" }
+
+tauri = { version = "2", features = [] }
+tauri-plugin-shell = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }

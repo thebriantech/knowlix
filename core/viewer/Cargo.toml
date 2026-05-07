@@ -1,0 +1,15 @@
+[package]
+name = "knowlix-viewer"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knowlix-common = { path = "../common" }
+serde = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }
+base64 = "0.22"
+
+[dev-dependencies]
+tempfile = { workspace = true }

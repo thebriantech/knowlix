@@ -1,0 +1,19 @@
+# Rust
+target/
+Cargo.lock
+
+# Node
+node_modules/
+dist/
+.env
+
+# Tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# OS
+.DS_Store
+*.swp
+
+# Knowlix data (never commit user data)
+~/.knowlix/

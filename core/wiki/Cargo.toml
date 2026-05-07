@@ -1,0 +1,15 @@
+[package]
+name = "knowlix-wiki"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+knowlix-common = { path = "../common" }
+knowlix-storage = { path = "../storage" }
+knowlix-search = { path = "../search" }
+knowlix-ai_agent = { path = "../ai_agent" }
+serde = { workspace = true }
+tokio = { workspace = true }
+thiserror = { workspace = true }
+sha2 = { workspace = true }
+tracing = { workspace = true }
