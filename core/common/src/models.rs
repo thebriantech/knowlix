@@ -127,6 +127,21 @@ pub struct AiAnswer {
     pub query: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum IndexFileStatus {
+    Indexed,
+    Skipped,
+    Failed,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexFileResult {
+    pub path: String,
+    pub status: IndexFileStatus,
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct IndexStats {
     pub total_files: usize,
@@ -134,6 +149,14 @@ pub struct IndexStats {
     pub skipped: usize,
     pub failed: usize,
     pub duration_ms: u64,
+    pub file_results: Vec<IndexFileResult>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexProgress {
+    pub current: usize,
+    pub total: usize,
+    pub current_file: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -141,6 +164,7 @@ pub struct IndexStatus {
     pub total_files: usize,
     pub indexed_files: usize,
     pub in_progress: bool,
+    pub last_indexed: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
