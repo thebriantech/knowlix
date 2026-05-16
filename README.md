@@ -72,6 +72,74 @@ Hot reload is active for both frontend (React/Vite) and backend (Rust recompiles
 
 Open DevTools: right-click anywhere → **Inspect**, or `Ctrl+Shift+I` (Linux/Windows) / `Cmd+Option+I` (macOS).
 
+### Logs
+
+Rust backend logs at `INFO` level by default. Logs are printed to the terminal running `npm run tauri dev`.
+
+```
+INFO [reindex] project=<id> folders=["/your/folder"]
+INFO [reindex] walk folder=/your/folder found=5 files
+INFO [reindex] indexed /your/folder/notes.md
+```
+
+To change log level, set `RUST_LOG` before running:
+
+```bash
+RUST_LOG=debug npm run tauri dev
+```
+
+### Type-check Rust without running the app
+
+```bash
+# Check all workspace crates
+cargo check --workspace
+
+# Check a specific crate
+cargo check -p knowlix-indexer
+```
+
+---
+
+## Testing
+
+All tests are Rust unit/integration tests in each crate under `core/`.
+
+### Run all tests
+
+```bash
+cargo test --workspace
+```
+
+### Run tests for a specific crate
+
+```bash
+cargo test -p knowlix-indexer
+cargo test -p knowlix-storage
+cargo test -p knowlix-project
+cargo test -p knowlix-search
+```
+
+### Show println / log output
+
+```bash
+cargo test --workspace -- --nocapture
+```
+
+### Run a single test by name
+
+```bash
+cargo test -p knowlix-indexer test_reindex_project_discovers_new_files -- --nocapture
+```
+
+### What each crate tests
+
+| Crate | Tests cover |
+|---|---|
+| `knowlix-indexer` | `walk_folder` filtering, recursive dir walking, `reindex_project` discovers new files, skips unchanged files, `chunk_text` splitting and overlap, file type and language detection, SHA256 hashing |
+| `knowlix-storage` | Project CRUD, duplicate name rejection, file entry upsert/delete, chunk insert/delete, FTS snippet truncation |
+| `knowlix-project` | Project creation, empty name validation, duplicate name rejection, update, list, delete |
+| `knowlix-search` | Keyword FTS search returns ranked results |
+
 ---
 
 ## Build
@@ -100,10 +168,27 @@ Bundles are output to `apps/desktop/src-tauri/target/release/bundle/`.
 npm run tauri build -- --no-bundle
 
 # Package specific formats
-npm run tauri bundle -- --bundles deb,appimage     # Linux
-npm run tauri bundle -- --bundles app,dmg          # macOS
-npm run tauri bundle -- --bundles nsis             # Windows
+npm run tauri build -- --bundles deb,appimage     # Linux
+npm run tauri build -- --bundles app,dmg          # macOS
+npm run tauri build -- --bundles nsis             # Windows (must run on Windows)
 ```
+
+### Cross-compile Windows `.exe` from Linux
+
+> **Note:** This produces a raw `.exe` binary only — no NSIS installer. For a full Windows installer, use a Windows machine or GitHub Actions.
+
+```bash
+# Install cross-compile toolchain (Debian/Ubuntu)
+sudo apt install gcc-mingw-w64-x86-64
+
+# Add Windows Rust target
+rustup target add x86_64-pc-windows-gnu
+
+# Build
+npm run tauri build -- --target x86_64-pc-windows-gnu
+```
+
+Output: `src-tauri/target/x86_64-pc-windows-gnu/release/knowlix-desktop.exe`
 
 ### macOS architecture targets
 
@@ -162,6 +247,7 @@ knowlix/
 │       └── src-tauri/    # Rust backend
 ├── core/                 # Shared Rust workspace crates
 │   ├── common/
+│   ├── project/
 │   ├── indexer/
 │   ├── search/
 │   ├── watcher/

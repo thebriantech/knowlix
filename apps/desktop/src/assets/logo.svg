@@ -1,0 +1,78 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" width="120" height="120">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0F172A"/>
+      <stop offset="100%" stop-color="#1E293B"/>
+    </linearGradient>
+    <linearGradient id="lineGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#38BDF8"/>
+      <stop offset="100%" stop-color="#818CF8"/>
+    </linearGradient>
+    <linearGradient id="nodeTopGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#7DD3FC"/>
+      <stop offset="100%" stop-color="#93C5FD"/>
+    </linearGradient>
+    <linearGradient id="nodeBotGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#A5B4FC"/>
+      <stop offset="100%" stop-color="#C4B5FD"/>
+    </linearGradient>
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="2.5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <filter id="centerGlow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="4" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="60" cy="60" r="58" fill="url(#bgGrad)"/>
+
+  <!-- Subtle ring -->
+  <circle cx="60" cy="60" r="55" fill="none" stroke="#334155" stroke-width="0.75" stroke-opacity="0.6"/>
+
+  <!-- K vertical bar -->
+  <line x1="34" y1="27" x2="34" y2="93"
+        stroke="url(#lineGrad)" stroke-width="8" stroke-linecap="round"
+        filter="url(#glow)"/>
+
+  <!-- K upper arm -->
+  <line x1="38" y1="60" x2="80" y2="27"
+        stroke="url(#lineGrad)" stroke-width="8" stroke-linecap="round"
+        filter="url(#glow)"/>
+
+  <!-- K lower arm -->
+  <line x1="38" y1="60" x2="80" y2="93"
+        stroke="url(#lineGrad)" stroke-width="8" stroke-linecap="round"
+        filter="url(#glow)"/>
+
+  <!-- Subtle knowledge-graph cross-connections -->
+  <line x1="34" y1="27" x2="80" y2="27"
+        stroke="#38BDF8" stroke-width="1.5" stroke-opacity="0.2" stroke-dasharray="4,4"/>
+  <line x1="34" y1="93" x2="80" y2="93"
+        stroke="#818CF8" stroke-width="1.5" stroke-opacity="0.2" stroke-dasharray="4,4"/>
+  <line x1="34" y1="27" x2="34" y2="27"/>
+
+  <!-- Top-left node -->
+  <circle cx="34" cy="27" r="5.5" fill="url(#nodeTopGrad)" filter="url(#glow)"/>
+
+  <!-- Bottom-left node -->
+  <circle cx="34" cy="93" r="5.5" fill="url(#nodeBotGrad)" filter="url(#glow)"/>
+
+  <!-- Center elbow node (larger, brightest) -->
+  <circle cx="38" cy="60" r="7.5" fill="#E0F2FE" filter="url(#centerGlow)"/>
+  <circle cx="38" cy="60" r="4" fill="#FFFFFF"/>
+
+  <!-- Top-right node -->
+  <circle cx="80" cy="27" r="5.5" fill="url(#nodeTopGrad)" filter="url(#glow)"/>
+
+  <!-- Bottom-right node -->
+  <circle cx="80" cy="93" r="5.5" fill="url(#nodeBotGrad)" filter="url(#glow)"/>
+</svg>

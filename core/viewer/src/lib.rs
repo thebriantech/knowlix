@@ -12,6 +12,8 @@ pub enum ViewContent {
     Html { content: String },
     Image { data_uri: String, mime: String },
     PlainText { content: String },
+    Pdf { data: String },
+    Docx { data: String },
 }
 
 pub async fn get_view_content(file_path: &str) -> Result<ViewContent> {
@@ -52,11 +54,14 @@ pub async fn get_view_content(file_path: &str) -> Result<ViewContent> {
                 mime: "image/svg+xml".to_string(),
             })
         }
-        // Phase 2: PDF and DOCX will render to HTML
-        "pdf" | "docx" => Err(KnowlixError::UnsupportedFileType(format!(
-            ".{} viewer available in Phase 2",
-            ext
-        ))),
+        "pdf" => {
+            let data = std::fs::read(file_path)?;
+            Ok(ViewContent::Pdf { data: STANDARD.encode(&data) })
+        }
+        "docx" => {
+            let data = std::fs::read(file_path)?;
+            Ok(ViewContent::Docx { data: STANDARD.encode(&data) })
+        }
         _ => {
             // Treat as code
             let content = std::fs::read_to_string(file_path).map_err(|_| {
@@ -172,12 +177,17 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_view_pdf_unsupported() {
-        let f = write_temp("pdf", b"%PDF-1.4");
-        let err = get_view_content(f.path().to_str().unwrap())
-            .await
-            .unwrap_err();
-        assert!(matches!(err, KnowlixError::UnsupportedFileType(_)));
+    async fn test_view_pdf_returns_data() {
+        let f = write_temp("pdf", b"%PDF-1.4 test content");
+        let result = get_view_content(f.path().to_str().unwrap()).await.unwrap();
+        assert!(matches!(result, ViewContent::Pdf { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_view_docx_returns_data() {
+        let f = write_temp("docx", b"PK fake docx bytes");
+        let result = get_view_content(f.path().to_str().unwrap()).await.unwrap();
+        assert!(matches!(result, ViewContent::Docx { .. }));
     }
 
     #[test]

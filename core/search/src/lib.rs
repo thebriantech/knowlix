@@ -18,8 +18,14 @@ pub async fn search_keyword(
         return Ok(vec![]);
     }
 
-    let hits = knowlix_storage::search_keyword_fts(query, project_id, limit)
-        .map_err(|e| KnowlixError::Index(e.to_string()))?;
+    let query_owned = query.to_string();
+    let pid = project_id.map(|s| s.to_string());
+    let hits = tokio::task::spawn_blocking(move || {
+        knowlix_storage::search_keyword_fts(&query_owned, pid.as_deref(), limit)
+    })
+    .await
+    .map_err(|e| KnowlixError::Index(e.to_string()))?
+    .map_err(|e| KnowlixError::Index(e.to_string()))?;
 
     let results = hits
         .into_iter()

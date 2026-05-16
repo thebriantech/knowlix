@@ -43,10 +43,9 @@ fn get_data_dir() -> Result<PathBuf> {
     if let Ok(dir) = std::env::var("KNOWLIX_DATA_DIR") {
         return Ok(PathBuf::from(dir));
     }
-    let home = std::env::var("HOME")
-        .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| KnowlixError::Storage("Cannot determine home directory".into()))?;
-    Ok(PathBuf::from(home).join(".knowlix"))
+    dirs::data_dir()
+        .map(|d| d.join("dev.knowlix.app"))
+        .ok_or_else(|| KnowlixError::Storage("Cannot determine app data directory".into()))
 }
 
 pub async fn init() -> Result<()> {
@@ -530,7 +529,11 @@ fn make_snippet(content: &str, max_len: usize) -> String {
     if content.len() <= max_len {
         return content.to_string();
     }
-    let truncated = &content[..max_len];
+    let mut end = max_len;
+    while end > 0 && !content.is_char_boundary(end) {
+        end -= 1;
+    }
+    let truncated = &content[..end];
     match truncated.rfind(|c: char| c.is_whitespace()) {
         Some(pos) => format!("{}…", &truncated[..pos]),
         None => format!("{}…", truncated),
