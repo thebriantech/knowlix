@@ -133,6 +133,7 @@ pub enum IndexFileStatus {
     Indexed,
     Skipped,
     Failed,
+    Removed,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -148,6 +149,7 @@ pub struct IndexStats {
     pub indexed: usize,
     pub skipped: usize,
     pub failed: usize,
+    pub removed: usize,
     pub duration_ms: u64,
     pub file_results: Vec<IndexFileResult>,
 }

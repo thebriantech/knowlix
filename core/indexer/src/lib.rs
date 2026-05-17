@@ -159,6 +159,7 @@ pub async fn reindex_project(
     let mut indexed = 0;
     let mut skipped = 0;
     let mut failed = 0;
+    let mut removed = 0;
     let mut file_results: Vec<IndexFileResult> = Vec::new();
 
     for entry in &tracked {
@@ -169,6 +170,19 @@ pub async fn reindex_project(
 
         let current_hash = match hash_file(&entry.path) {
             Ok(h) => h,
+            Err(_) if !Path::new(&entry.path).exists() => {
+                tracing::info!("[reindex] file deleted, removing from index path={}", entry.path);
+                if let Err(re) = remove_file(&entry.path).await {
+                    tracing::warn!("[reindex] remove failed path={} err={re}", entry.path);
+                }
+                removed += 1;
+                file_results.push(IndexFileResult {
+                    path: entry.path.clone(),
+                    status: IndexFileStatus::Removed,
+                    error: None,
+                });
+                continue;
+            }
             Err(e) => {
                 tracing::warn!("[reindex] hash failed path={} err={e}", entry.path);
                 failed += 1;
@@ -251,6 +265,7 @@ pub async fn reindex_project(
         indexed,
         skipped,
         failed,
+        removed,
         duration_ms: start.elapsed().as_millis() as u64,
         file_results,
     })

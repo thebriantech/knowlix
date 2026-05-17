@@ -71,19 +71,32 @@ export function ProjectSidebar({ projects, selectedProject, onSelect, onProjects
     return () => { unlisten?.(); };
   }, []);
 
-  // Listen to file_indexed / file_removed events (refresh status)
+  // Listen to file_indexed / file_removed / reindex_complete events (refresh status)
   useEffect(() => {
     if (!selectedProject) return;
     let unlisten1: (() => void) | null = null;
     let unlisten2: (() => void) | null = null;
+    let unlisten3: (() => void) | null = null;
     const projectId = selectedProject.id;
-    listen<string>('file_indexed', () => {
+    const refresh = () => api.getIndexStatus(projectId).then(setIndexStatus).catch(console.error);
+    listen<string>('file_indexed', refresh).then(fn => { unlisten1 = fn; });
+    listen<string>('file_removed', refresh).then(fn => { unlisten2 = fn; });
+    listen<IndexStats>('reindex_complete', e => {
+      setIndexStatus(s => s ? { ...s } : s); // trigger time refresh
+      setIndexResult({ stats: e.payload });
+      refresh();
+    }).then(fn => { unlisten3 = fn; });
+    return () => { unlisten1?.(); unlisten2?.(); unlisten3?.(); };
+  }, [selectedProject?.id]);
+
+  // Tick every 30s to keep relative time display fresh
+  useEffect(() => {
+    if (!selectedProject) return;
+    const projectId = selectedProject.id;
+    const id = setInterval(() => {
       api.getIndexStatus(projectId).then(setIndexStatus).catch(console.error);
-    }).then(fn => { unlisten1 = fn; });
-    listen<string>('file_removed', () => {
-      api.getIndexStatus(projectId).then(setIndexStatus).catch(console.error);
-    }).then(fn => { unlisten2 = fn; });
-    return () => { unlisten1?.(); unlisten2?.(); };
+    }, 30_000);
+    return () => clearInterval(id);
   }, [selectedProject?.id]);
 
   async function createProject() {
@@ -129,7 +142,7 @@ export function ProjectSidebar({ projects, selectedProject, onSelect, onProjects
           const stats = await api.reindexProject(selectedProject.id);
           setIndexResult({ stats });
         } catch (e) {
-          setIndexResult({ stats: { total_files: 0, indexed: 0, skipped: 0, failed: 0, duration_ms: 0, file_results: [] }, error: String(e) });
+          setIndexResult({ stats: { total_files: 0, indexed: 0, skipped: 0, failed: 0, removed: 0, duration_ms: 0, file_results: [] }, error: String(e) });
         } finally {
           setIndexing(false);
           setProgress(null);
@@ -162,7 +175,7 @@ export function ProjectSidebar({ projects, selectedProject, onSelect, onProjects
       const stats = await api.reindexProject(selectedProject.id);
       setIndexResult({ stats });
     } catch (e) {
-      setIndexResult({ stats: { total_files: 0, indexed: 0, skipped: 0, failed: 0, duration_ms: 0, file_results: [] }, error: String(e) });
+      setIndexResult({ stats: { total_files: 0, indexed: 0, skipped: 0, failed: 0, removed: 0, duration_ms: 0, file_results: [] }, error: String(e) });
     } finally {
       setIndexing(false);
       setProgress(null);

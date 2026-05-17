@@ -13,7 +13,7 @@ function basename(path: string): string {
   return path.split(/[/\\]/).pop() ?? path;
 }
 
-const STATUS_ORDER: Record<IndexFileStatus, number> = { failed: 0, indexed: 1, skipped: 2 };
+const STATUS_ORDER: Record<IndexFileStatus, number> = { failed: 0, removed: 1, indexed: 2, skipped: 3 };
 
 export function IndexDetailModal({ stats, projectName, onClose }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
@@ -22,6 +22,7 @@ export function IndexDetailModal({ stats, projectName, onClose }: Props) {
     indexed: stats.file_results.filter(r => r.status === 'indexed').length,
     skipped: stats.file_results.filter(r => r.status === 'skipped').length,
     failed: stats.file_results.filter(r => r.status === 'failed').length,
+    removed: stats.file_results.filter(r => r.status === 'removed').length,
   };
 
   const displayed = (filter === 'all' ? stats.file_results : stats.file_results.filter(r => r.status === filter))
@@ -31,6 +32,7 @@ export function IndexDetailModal({ stats, projectName, onClose }: Props) {
   const FILTERS: { key: Filter; label: string; count: number }[] = [
     { key: 'all', label: 'All', count: stats.file_results.length },
     { key: 'failed', label: 'Failed', count: counts.failed },
+    { key: 'removed', label: 'Removed', count: counts.removed },
     { key: 'indexed', label: 'Indexed', count: counts.indexed },
     { key: 'skipped', label: 'Skipped', count: counts.skipped },
   ];
@@ -49,6 +51,9 @@ export function IndexDetailModal({ stats, projectName, onClose }: Props) {
         <div className="modal-stats">
           <span className="modal-stat indexed">✓ {counts.indexed} indexed</span>
           <span className="modal-stat skipped">⟳ {counts.skipped} skipped</span>
+          <span className={`modal-stat removed${counts.removed === 0 ? ' zero' : ''}`}>
+            − {counts.removed} removed
+          </span>
           <span className={`modal-stat failed${counts.failed === 0 ? ' zero' : ''}`}>
             ✗ {counts.failed} failed
           </span>
@@ -74,7 +79,7 @@ export function IndexDetailModal({ stats, projectName, onClose }: Props) {
           {displayed.map((r, i) => (
             <div key={i} className={`modal-file-item ${r.status}`}>
               <span className={`file-status-badge ${r.status}`}>
-                {r.status === 'indexed' ? '✓' : r.status === 'skipped' ? '⟳' : '✗'}
+                {r.status === 'indexed' ? '✓' : r.status === 'skipped' ? '⟳' : r.status === 'removed' ? '−' : '✗'}
               </span>
               <div className="modal-file-info">
                 <div className="modal-file-name">{basename(r.path)}</div>
