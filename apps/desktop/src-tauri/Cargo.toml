@@ -12,7 +12,6 @@ knowlix-common = { path = "../../../core/common" }
 knowlix-project = { path = "../../../core/project" }
 knowlix-indexer = { path = "../../../core/indexer" }
 knowlix-search = { path = "../../../core/search" }
-knowlix-watcher = { path = "../../../core/watcher" }
 knowlix-storage = { path = "../../../core/storage" }
 knowlix-viewer = { path = "../../../core/viewer" }
 knowlix-wiki = { path = "../../../core/wiki" }

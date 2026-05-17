@@ -18,7 +18,7 @@ export interface SearchResult {
   source: 'bm25' | 'vector' | 'hybrid';
 }
 
-export type IndexFileStatus = 'indexed' | 'skipped' | 'failed';
+export type IndexFileStatus = 'indexed' | 'skipped' | 'failed' | 'removed';
 
 export interface IndexFileResult {
   path: string;
@@ -31,6 +31,7 @@ export interface IndexStats {
   indexed: number;
   skipped: number;
   failed: number;
+  removed: number;
   duration_ms: number;
   file_results: IndexFileResult[];
 }
