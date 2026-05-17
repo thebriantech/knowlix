@@ -36,6 +36,9 @@ pub fn run() {
 
             tracing::info!("Knowlix starting. log={}", log_path.display());
 
+            let embeddings_cache = data_dir.join("cache").join("embeddings");
+            knowlix_storage::set_embedding_cache_dir(embeddings_cache);
+
             tauri::async_runtime::block_on(knowlix_storage::init_with_dir(data_dir))
                 .expect("Storage initialization failed");
             Ok(())
@@ -53,6 +56,9 @@ pub fn run() {
             commands::search::search,
             commands::search::search_keyword,
             commands::search::search_semantic,
+            // Embedding model commands
+            commands::embeddings::get_embedding_model_status,
+            commands::embeddings::ensure_embedding_model,
             // Indexer commands
             commands::indexer::index_file,
             commands::indexer::reindex_project,

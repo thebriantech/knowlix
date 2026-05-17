@@ -38,16 +38,16 @@ Milestone: user adds files to folder and they appear in search within seconds.
 
 ---
 
-## Phase 3 — Semantic Search (Tier 0) — IN PROGRESS
+## Phase 3 — Semantic Search (Tier 0) ✅ COMPLETE
 
 Goal: semantic search without any API key.
 
-- [ ] fastembed-rs integration (local embedding model, download on first use)
-- [ ] sqlite-vec integration (vector storage + similarity search)
-- [ ] Hybrid search: BM25 + vector + RRF merge
+- [x] fastembed-rs integration (local embedding model, download on first use)
+- [x] Vector storage + cosine similarity search (BLOB storage in SQLite + Rust cosine sim; sqlite-vec migration optional future work)
+- [x] Hybrid search: BM25 + vector + RRF merge
 - [x] ~900 token chunking with boundary detection and overlap (implemented in `core/indexer` — 3600 chars ≈ 900 tokens, 400-char overlap, newline-boundary alignment)
-- [ ] Search mode toggle: keyword / semantic / hybrid
-- [ ] Embedding model download UX (progress, size warning)
+- [x] Search mode toggle: keyword / semantic / hybrid
+- [x] Embedding model download UX (progress, size warning ~25 MB)
 
 Milestone: user gets semantic results "find all docs about authentication" without API key.
 

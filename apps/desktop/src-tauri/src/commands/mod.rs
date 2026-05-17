@@ -1,4 +1,5 @@
 pub mod ai_agent;
+pub mod embeddings;
 pub mod indexer;
 pub mod project;
 pub mod search;

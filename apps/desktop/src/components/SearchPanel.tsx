@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { api } from '../api';
-import type { Project, SearchResult } from '../types';
+import type { Project, SearchResult, EmbeddingModelStatus, SearchMode } from '../types';
 
 interface Props {
   selectedProject: Project | null;
@@ -25,10 +26,44 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
   const [scopeAll, setScopeAll] = useState(false);
-
+  const [mode, setMode] = useState<SearchMode>('keyword');
+  const [modelStatus, setModelStatus] = useState<EmbeddingModelStatus>({
+    ready: false,
+    downloading: false,
+  });
   useEffect(() => {
     if (!selectedProject) setScopeAll(true);
   }, [selectedProject]);
+
+  // Load initial model status
+  useEffect(() => {
+    api.getEmbeddingModelStatus().then(setModelStatus).catch(() => {});
+  }, []);
+
+  // Subscribe to model download events
+  useEffect(() => {
+    let unlisten1: (() => void) | null = null;
+    let unlisten2: (() => void) | null = null;
+    let unlisten3: (() => void) | null = null;
+
+    Promise.all([
+      listen('embedding_model_downloading', () =>
+        setModelStatus({ ready: false, downloading: true })
+      ).then(fn => { unlisten1 = fn; }),
+      listen('embedding_model_ready', () =>
+        setModelStatus({ ready: true, downloading: false })
+      ).then(fn => { unlisten2 = fn; }),
+      listen<string>('embedding_model_error', ev =>
+        setModelStatus({ ready: false, downloading: false, error: ev.payload })
+      ).then(fn => { unlisten3 = fn; }),
+    ]);
+
+    return () => {
+      unlisten1?.();
+      unlisten2?.();
+      unlisten3?.();
+    };
+  }, []);
 
   const effectiveProjectId = scopeAll ? undefined : selectedProject?.id;
 
@@ -39,7 +74,14 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
     setError(null);
     setSearched(true);
     try {
-      const res = await api.search(q, effectiveProjectId, 20);
+      let res: SearchResult[];
+      if (mode === 'keyword') {
+        res = await api.searchKeyword(q, effectiveProjectId, 20);
+      } else if (mode === 'semantic') {
+        res = await api.searchSemantic(q, effectiveProjectId, 20);
+      } else {
+        res = await api.search(q, effectiveProjectId, 20);
+      }
       setResults(res);
     } catch (e) {
       setError(String(e));
@@ -47,7 +89,17 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
     } finally {
       setSearching(false);
     }
-  }, [query, effectiveProjectId]);
+  }, [query, effectiveProjectId, mode]);
+
+  const handleDownloadModel = useCallback(async () => {
+    try {
+      await api.ensureEmbeddingModel();
+    } catch (e) {
+      setModelStatus(s => ({ ...s, error: String(e) }));
+    }
+  }, []);
+
+  const needsModel = mode !== 'keyword' && !modelStatus.ready;
 
   return (
     <div className="search-panel">
@@ -68,6 +120,39 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
             All projects
           </button>
         </div>
+
+        <div className="search-mode-toggle">
+          {(['keyword', 'semantic', 'hybrid'] as SearchMode[]).map(m => (
+            <button
+              key={m}
+              className={`mode-btn${mode === m ? ' active' : ''}`}
+              onClick={() => setMode(m)}
+            >
+              {m.charAt(0).toUpperCase() + m.slice(1)}
+            </button>
+          ))}
+        </div>
+
+        {needsModel && (
+          <div className="model-download-banner">
+            {modelStatus.downloading ? (
+              <span className="model-status-downloading">Downloading model…</span>
+            ) : modelStatus.error ? (
+              <>
+                <span className="model-status-error">Download failed: {modelStatus.error}</span>
+                <button className="btn btn-sm" onClick={handleDownloadModel}>Retry</button>
+              </>
+            ) : (
+              <>
+                <span>Semantic search requires the embedding model (~25 MB)</span>
+                <button className="btn btn-sm btn-primary" onClick={handleDownloadModel}>
+                  Download
+                </button>
+              </>
+            )}
+          </div>
+        )}
+
         <div className="search-input-row">
           <input
             className="search-input"
@@ -77,7 +162,11 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
             placeholder="Search files…"
             autoFocus
           />
-          <button className="btn btn-primary" onClick={doSearch} disabled={searching || !query.trim()}>
+          <button
+            className="btn btn-primary"
+            onClick={doSearch}
+            disabled={searching || !query.trim() || (needsModel && !modelStatus.ready)}
+          >
             {searching ? '…' : '🔍'}
           </button>
         </div>

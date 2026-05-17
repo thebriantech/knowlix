@@ -1,9 +1,12 @@
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 use chrono::Utc;
+use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use knowlix_common::{
-    AiConfig, AiProvider, Chunk, FileEntry, FileType, KnowlixError, Project, Result, WikiPage,
+    AiConfig, AiProvider, Chunk, EmbeddingModelStatus, FileEntry, FileType, KnowlixError, Project,
+    Result, WikiPage,
 };
 use sqlx::{sqlite::SqliteConnectOptions, SqlitePool};
 use tantivy::{
@@ -46,6 +49,117 @@ fn get_data_dir() -> Result<PathBuf> {
     dirs::data_dir()
         .map(|d| d.join("dev.knowlix.app"))
         .ok_or_else(|| KnowlixError::Storage("Cannot determine app data directory".into()))
+}
+
+// ---- Embedding model statics ----
+
+static EMBEDDING_MODEL: OnceLock<TextEmbedding> = OnceLock::new();
+static EMBEDDING_DOWNLOADING: AtomicBool = AtomicBool::new(false);
+static EMBEDDING_CACHE_DIR: OnceLock<PathBuf> = OnceLock::new();
+static EMBEDDING_LAST_ERROR: OnceLock<Mutex<Option<String>>> = OnceLock::new();
+
+fn embedding_error_store() -> &'static Mutex<Option<String>> {
+    EMBEDDING_LAST_ERROR.get_or_init(|| Mutex::new(None))
+}
+
+pub const EMBEDDING_MODEL_NAME: &str = "AllMiniLML6V2";
+
+pub fn set_embedding_cache_dir(dir: PathBuf) {
+    let _ = EMBEDDING_CACHE_DIR.set(dir);
+}
+
+pub fn is_embedding_ready() -> bool {
+    EMBEDDING_MODEL.get().is_some()
+}
+
+pub fn is_embedding_downloading() -> bool {
+    EMBEDDING_DOWNLOADING.load(Ordering::SeqCst)
+}
+
+pub fn get_embedding_model_status() -> EmbeddingModelStatus {
+    let error = embedding_error_store()
+        .lock()
+        .ok()
+        .and_then(|g| g.clone());
+    EmbeddingModelStatus {
+        ready: is_embedding_ready(),
+        downloading: is_embedding_downloading(),
+        error,
+    }
+}
+
+/// Blocking. Call from spawn_blocking. Downloads model if not cached.
+pub fn ensure_embedding_model_blocking() -> Result<()> {
+    if EMBEDDING_MODEL.get().is_some() {
+        return Ok(());
+    }
+    if EMBEDDING_DOWNLOADING.load(Ordering::SeqCst) {
+        // Another thread is already downloading — wait by spinning (brief)
+        while EMBEDDING_DOWNLOADING.load(Ordering::SeqCst) {
+            std::thread::sleep(std::time::Duration::from_millis(200));
+        }
+        return if EMBEDDING_MODEL.get().is_some() {
+            Ok(())
+        } else {
+            Err(KnowlixError::Embedding("Model download failed".into()))
+        };
+    }
+    EMBEDDING_DOWNLOADING.store(true, Ordering::SeqCst);
+    let cache_dir = EMBEDDING_CACHE_DIR
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from(".knowlix_embeddings_cache"));
+    if let Err(e) = std::fs::create_dir_all(&cache_dir) {
+        EMBEDDING_DOWNLOADING.store(false, Ordering::SeqCst);
+        return Err(KnowlixError::Io(e));
+    }
+    let result = TextEmbedding::try_new(
+        InitOptions::new(EmbeddingModel::AllMiniLML6V2)
+            .with_cache_dir(cache_dir)
+            .with_show_download_progress(false),
+    )
+    .map_err(|e| KnowlixError::Embedding(e.to_string()));
+    EMBEDDING_DOWNLOADING.store(false, Ordering::SeqCst);
+    match result {
+        Ok(model) => {
+            let _ = EMBEDDING_MODEL.set(model);
+            if let Ok(mut g) = embedding_error_store().lock() {
+                *g = None;
+            }
+            Ok(())
+        }
+        Err(e) => {
+            if let Ok(mut g) = embedding_error_store().lock() {
+                *g = Some(e.to_string());
+            }
+            Err(e)
+        }
+    }
+}
+
+/// Embed texts. Must call ensure_embedding_model_blocking first.
+/// Runs in spawn_blocking internally.
+pub async fn embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>> {
+    tokio::task::spawn_blocking(move || {
+        let model = EMBEDDING_MODEL
+            .get()
+            .ok_or_else(|| KnowlixError::Embedding("Embedding model not ready".into()))?;
+        model
+            .embed(texts, None)
+            .map_err(|e| KnowlixError::Embedding(e.to_string()))
+    })
+    .await
+    .map_err(|e| KnowlixError::Embedding(e.to_string()))?
+}
+
+// ---- Vector hit type ----
+
+pub struct VectorHit {
+    pub chunk_id: String,
+    pub file_id: String,
+    pub file_path: String,
+    pub score: f32,
+    pub snippet: String,
 }
 
 pub async fn init() -> Result<()> {
@@ -198,6 +312,19 @@ async fn run_migrations(db: &SqlitePool) -> Result<()> {
             api_key TEXT,
             api_base_url TEXT NOT NULL DEFAULT 'https://api.openai.com/v1',
             api_model TEXT
+        )",
+    )
+    .execute(db)
+    .await
+    .map_err(|e| KnowlixError::Storage(e.to_string()))?;
+
+    sqlx::query(
+        "CREATE TABLE IF NOT EXISTS embeddings (
+            chunk_id TEXT PRIMARY KEY,
+            model TEXT NOT NULL,
+            vector BLOB NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
         )",
     )
     .execute(db)
@@ -606,6 +733,126 @@ pub async fn delete_wiki_pages_for_project(project_id: &str) -> Result<()> {
     Ok(())
 }
 
+// ---- Embeddings ----
+
+fn f32_slice_to_bytes(v: &[f32]) -> Vec<u8> {
+    let mut bytes = Vec::with_capacity(v.len() * 4);
+    for &f in v {
+        bytes.extend_from_slice(&f.to_le_bytes());
+    }
+    bytes
+}
+
+fn bytes_to_f32_vec(bytes: &[u8]) -> Vec<f32> {
+    bytes
+        .chunks_exact(4)
+        .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+        .collect()
+}
+
+fn cosine_sim(a: &[f32], b: &[f32]) -> f32 {
+    let dot: f32 = a.iter().zip(b.iter()).map(|(x, y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        0.0
+    } else {
+        dot / (norm_a * norm_b)
+    }
+}
+
+pub async fn insert_embedding(chunk_id: &str, model: &str, vector: &[f32]) -> Result<()> {
+    let s = get_state()?;
+    let blob = f32_slice_to_bytes(vector);
+    let now = Utc::now().to_rfc3339();
+    sqlx::query(
+        "INSERT OR REPLACE INTO embeddings (chunk_id, model, vector, created_at) VALUES (?, ?, ?, ?)",
+    )
+    .bind(chunk_id)
+    .bind(model)
+    .bind(&blob)
+    .bind(&now)
+    .execute(&s.db)
+    .await
+    .map_err(|e| KnowlixError::Storage(e.to_string()))?;
+    Ok(())
+}
+
+pub async fn delete_embeddings_for_file(file_id: &str) -> Result<()> {
+    let s = get_state()?;
+    sqlx::query(
+        "DELETE FROM embeddings WHERE chunk_id IN (SELECT id FROM chunks WHERE file_id = ?)",
+    )
+    .bind(file_id)
+    .execute(&s.db)
+    .await
+    .map_err(|e| KnowlixError::Storage(e.to_string()))?;
+    Ok(())
+}
+
+#[derive(sqlx::FromRow)]
+struct EmbeddingRow {
+    chunk_id: String,
+    file_id: String,
+    file_path: String,
+    content: String,
+    vector: Vec<u8>,
+}
+
+pub async fn search_vector(
+    query_vector: &[f32],
+    project_id: Option<&str>,
+    limit: usize,
+) -> Result<Vec<VectorHit>> {
+    let s = get_state()?;
+    let rows: Vec<EmbeddingRow> = if let Some(pid) = project_id {
+        sqlx::query_as::<_, EmbeddingRow>(
+            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, c.content, e.vector
+             FROM embeddings e
+             JOIN chunks c ON c.id = e.chunk_id
+             JOIN file_entries fe ON fe.id = c.file_id
+             WHERE fe.project_id = ?",
+        )
+        .bind(pid)
+        .fetch_all(&s.db)
+        .await
+        .map_err(|e| KnowlixError::Storage(e.to_string()))?
+    } else {
+        sqlx::query_as::<_, EmbeddingRow>(
+            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, c.content, e.vector
+             FROM embeddings e
+             JOIN chunks c ON c.id = e.chunk_id
+             JOIN file_entries fe ON fe.id = c.file_id",
+        )
+        .fetch_all(&s.db)
+        .await
+        .map_err(|e| KnowlixError::Storage(e.to_string()))?
+    };
+
+    let q = query_vector.to_vec();
+    let mut scored: Vec<(f32, EmbeddingRow)> = rows
+        .into_iter()
+        .map(|row| {
+            let vec = bytes_to_f32_vec(&row.vector);
+            let score = cosine_sim(&q, &vec);
+            (score, row)
+        })
+        .collect();
+    scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
+    scored.truncate(limit);
+
+    Ok(scored
+        .into_iter()
+        .map(|(score, row)| VectorHit {
+            chunk_id: row.chunk_id,
+            file_id: row.file_id,
+            file_path: row.file_path,
+            score,
+            snippet: make_snippet(&row.content, 300),
+        })
+        .collect())
+}
+
 // ---- AI Config ----
 
 pub async fn get_ai_config() -> Result<AiConfig> {
@@ -1004,5 +1251,248 @@ mod tests {
         let long = "a".repeat(400);
         let snippet = make_snippet(&long, 300);
         assert!(snippet.len() <= 304); // 300 + "…"
+    }
+
+    // ---- Embedding: unit tests (no model required) ----
+
+    #[test]
+    fn test_f32_bytes_roundtrip() {
+        let v = vec![1.0f32, -0.5, 0.0, 3.14, f32::MAX, f32::MIN_POSITIVE];
+        let bytes = f32_slice_to_bytes(&v);
+        assert_eq!(bytes.len(), v.len() * 4);
+        let back = bytes_to_f32_vec(&bytes);
+        for (a, b) in v.iter().zip(back.iter()) {
+            assert!((a - b).abs() < 1e-6, "roundtrip mismatch: {a} vs {b}");
+        }
+    }
+
+    #[test]
+    fn test_f32_bytes_empty() {
+        assert!(f32_slice_to_bytes(&[]).is_empty());
+        assert!(bytes_to_f32_vec(&[]).is_empty());
+    }
+
+    #[test]
+    fn test_cosine_sim_identical() {
+        let v = vec![1.0f32, 2.0, 3.0];
+        let sim = cosine_sim(&v, &v);
+        assert!((sim - 1.0).abs() < 1e-5, "identical vectors should have sim=1.0, got {sim}");
+    }
+
+    #[test]
+    fn test_cosine_sim_opposite() {
+        let a = vec![1.0f32, 0.0, 0.0];
+        let b = vec![-1.0f32, 0.0, 0.0];
+        let sim = cosine_sim(&a, &b);
+        assert!((sim - (-1.0)).abs() < 1e-5, "opposite vectors should have sim=-1.0, got {sim}");
+    }
+
+    #[test]
+    fn test_cosine_sim_orthogonal() {
+        let a = vec![1.0f32, 0.0, 0.0];
+        let b = vec![0.0f32, 1.0, 0.0];
+        let sim = cosine_sim(&a, &b);
+        assert!(sim.abs() < 1e-5, "orthogonal vectors should have sim≈0, got {sim}");
+    }
+
+    #[test]
+    fn test_cosine_sim_zero_vector() {
+        let a = vec![1.0f32, 2.0, 3.0];
+        let z = vec![0.0f32, 0.0, 0.0];
+        assert_eq!(cosine_sim(&a, &z), 0.0);
+        assert_eq!(cosine_sim(&z, &a), 0.0);
+    }
+
+    #[test]
+    fn test_embedding_model_status_initial() {
+        // Without calling ensure_embedding_model_blocking, model must not be ready.
+        // (OnceLock is shared across tests — this passes if model was never init'd)
+        // NOTE: not asserting ready=false because another test might init it in
+        // a full test run with network. We just check the struct fields are consistent.
+        let status = get_embedding_model_status();
+        if status.ready {
+            assert!(!status.downloading, "cannot be ready AND downloading");
+        }
+        if status.downloading {
+            assert!(!status.ready, "cannot be downloading AND ready");
+        }
+    }
+
+    // ---- Embedding: integration tests (DB, no model required) ----
+
+    async fn make_project_with_file_and_chunk(
+        proj_name: &str,
+        file_suffix: &str,
+        chunk_content: &str,
+    ) -> (String, String, String) {
+        let proj_id = uuid::Uuid::new_v4().to_string();
+        insert_project(&Project {
+            id: proj_id.clone(),
+            name: format!("{proj_name}-{}", &proj_id[..8]),
+            description: None,
+            folders: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+
+        let file_id = uuid::Uuid::new_v4().to_string();
+        upsert_file_entry(&FileEntry {
+            id: file_id.clone(),
+            project_id: proj_id.clone(),
+            path: format!("/tmp/emb-{}{}", &file_id[..8], file_suffix),
+            file_type: FileType::Text,
+            language: None,
+            size_bytes: chunk_content.len() as i64,
+            content_hash: file_id.clone(),
+            last_indexed: Utc::now(),
+            indexed: true,
+        })
+        .await
+        .unwrap();
+
+        let chunk_id = uuid::Uuid::new_v4().to_string();
+        insert_chunks(vec![Chunk {
+            id: chunk_id.clone(),
+            file_id: file_id.clone(),
+            chunk_index: 0,
+            content: chunk_content.to_string(),
+            token_count: 10,
+            start_byte: 0,
+            end_byte: chunk_content.len() as i64,
+        }])
+        .await
+        .unwrap();
+
+        (proj_id, file_id, chunk_id)
+    }
+
+    #[tokio::test]
+    async fn test_insert_and_search_vector() {
+        let _guard = setup().await;
+
+        let (proj_id, _file_id, chunk_id) =
+            make_project_with_file_and_chunk("VecSearch", ".txt", "semantic search test").await;
+
+        // Insert a unit vector along X axis
+        let v = vec![1.0f32, 0.0, 0.0];
+        insert_embedding(&chunk_id, "test-model", &v).await.unwrap();
+
+        // Query with same vector — should return score ≈ 1.0
+        let hits = search_vector(&[1.0, 0.0, 0.0], Some(&proj_id), 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].chunk_id, chunk_id);
+        assert!((hits[0].score - 1.0).abs() < 1e-5, "score should be 1.0, got {}", hits[0].score);
+        assert_eq!(hits[0].snippet, "semantic search test");
+    }
+
+    #[tokio::test]
+    async fn test_search_vector_sorted_by_score() {
+        let _guard = setup().await;
+
+        let (proj_id, _fid, chunk_a) =
+            make_project_with_file_and_chunk("VecSort-A", ".txt", "chunk alpha").await;
+        // Add second chunk to same project via separate file
+        let (_, _fid2, chunk_b) =
+            make_project_with_file_and_chunk("VecSort-B", ".txt", "chunk beta").await;
+        // Re-use proj_id by inserting directly — override project for second file
+        let file_id2 = uuid::Uuid::new_v4().to_string();
+        upsert_file_entry(&FileEntry {
+            id: file_id2.clone(),
+            project_id: proj_id.clone(),
+            path: format!("/tmp/vecs-b-{}.txt", &file_id2[..8]),
+            file_type: FileType::Text,
+            language: None,
+            size_bytes: 10,
+            content_hash: file_id2.clone(),
+            last_indexed: Utc::now(),
+            indexed: true,
+        })
+        .await
+        .unwrap();
+        let chunk_b2 = uuid::Uuid::new_v4().to_string();
+        insert_chunks(vec![Chunk {
+            id: chunk_b2.clone(),
+            file_id: file_id2.clone(),
+            chunk_index: 0,
+            content: "chunk beta in same project".into(),
+            token_count: 5,
+            start_byte: 0,
+            end_byte: 10,
+        }])
+        .await
+        .unwrap();
+
+        // chunk_a: [1,0,0], chunk_b2: [0.6, 0.8, 0] — both in proj_id
+        insert_embedding(&chunk_a, "m", &[1.0f32, 0.0, 0.0]).await.unwrap();
+        insert_embedding(&chunk_b2, "m", &[0.6f32, 0.8, 0.0]).await.unwrap();
+
+        // Query [1,0,0] — chunk_a should score higher
+        let hits = search_vector(&[1.0f32, 0.0, 0.0], Some(&proj_id), 10).await.unwrap();
+        assert!(hits.len() >= 2);
+        assert_eq!(hits[0].chunk_id, chunk_a, "highest cosine sim should be chunk_a");
+        assert!(hits[0].score > hits[1].score, "results must be sorted desc");
+        let _ = chunk_b; // suppress unused warning
+    }
+
+    #[tokio::test]
+    async fn test_search_vector_respects_project_filter() {
+        let _guard = setup().await;
+
+        let (proj1, _f1, chunk1) =
+            make_project_with_file_and_chunk("Filter-P1", ".txt", "project one content").await;
+        let (proj2, _f2, chunk2) =
+            make_project_with_file_and_chunk("Filter-P2", ".txt", "project two content").await;
+
+        let v = vec![1.0f32, 0.0, 0.0];
+        insert_embedding(&chunk1, "m", &v).await.unwrap();
+        insert_embedding(&chunk2, "m", &v).await.unwrap();
+
+        let hits_p1 = search_vector(&v, Some(&proj1), 10).await.unwrap();
+        assert!(hits_p1.iter().all(|h| h.chunk_id == chunk1), "proj1 filter returned wrong chunks");
+
+        let hits_p2 = search_vector(&v, Some(&proj2), 10).await.unwrap();
+        assert!(hits_p2.iter().all(|h| h.chunk_id == chunk2), "proj2 filter returned wrong chunks");
+
+        let hits_all = search_vector(&v, None, 10).await.unwrap();
+        assert!(hits_all.len() >= 2, "all-projects search must return both");
+    }
+
+    #[tokio::test]
+    async fn test_delete_embeddings_for_file() {
+        let _guard = setup().await;
+
+        let (proj_id, file_id, chunk_id) =
+            make_project_with_file_and_chunk("DelEmb", ".txt", "delete embeddings test").await;
+
+        let v = vec![1.0f32, 0.0, 0.0];
+        insert_embedding(&chunk_id, "m", &v).await.unwrap();
+
+        // Verify it's there
+        let before = search_vector(&v, Some(&proj_id), 10).await.unwrap();
+        assert_eq!(before.len(), 1);
+
+        delete_embeddings_for_file(&file_id).await.unwrap();
+
+        let after = search_vector(&v, Some(&proj_id), 10).await.unwrap();
+        assert!(after.is_empty(), "embeddings should be deleted");
+    }
+
+    #[tokio::test]
+    async fn test_insert_embedding_upsert() {
+        let _guard = setup().await;
+
+        let (_proj_id, _file_id, chunk_id) =
+            make_project_with_file_and_chunk("UpsertEmb", ".txt", "upsert test").await;
+
+        // Insert v1 then overwrite with v2
+        insert_embedding(&chunk_id, "m", &[1.0f32, 0.0, 0.0]).await.unwrap();
+        insert_embedding(&chunk_id, "m", &[0.0f32, 1.0, 0.0]).await.unwrap();
+
+        // Query with [0,1,0] — should return score ≈ 1.0 (v2 wins)
+        let hits = search_vector(&[0.0f32, 1.0, 0.0], None, 10).await.unwrap();
+        let hit = hits.iter().find(|h| h.chunk_id == chunk_id).expect("chunk must exist");
+        assert!((hit.score - 1.0).abs() < 1e-5, "upsert should store latest vector, got {}", hit.score);
     }
 }
