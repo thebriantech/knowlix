@@ -111,6 +111,7 @@ pub enum SearchSource {
 pub struct SearchResult {
     pub file_id: String,
     pub file_path: String,
+    pub project_id: String,
     pub chunk_id: String,
     pub snippet: String,
     pub score: f32,

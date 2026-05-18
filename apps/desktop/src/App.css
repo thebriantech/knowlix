@@ -316,7 +316,46 @@ body, #root {
   flex-shrink: 0;
 }
 
-.search-scope-toggle {
+.search-filters-row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.search-filter-select {
+  flex: 1;
+  padding: 5px 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: white;
+  border: 1px solid var(--input-border);
+  border-radius: 5px;
+  cursor: pointer;
+  outline: none;
+  appearance: auto;
+}
+
+.search-filter-select:focus {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+}
+
+.result-group-header {
+  padding: 5px 12px;
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.7px;
+  color: var(--accent);
+  background: var(--accent-light);
+  border-bottom: 1px solid var(--panel-border);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.search-mode-toggle {
   display: flex;
   gap: 2px;
   margin-bottom: 8px;
@@ -325,7 +364,7 @@ body, #root {
   padding: 2px;
 }
 
-.scope-btn {
+.mode-btn {
   flex: 1;
   padding: 4px 8px;
   font-size: 11px;
@@ -338,20 +377,38 @@ body, #root {
   transition: background 0.15s, color 0.15s;
 }
 
-.scope-btn:hover:not(:disabled) {
+.mode-btn:hover {
   background: rgba(255,255,255,0.5);
   color: var(--text-secondary);
 }
 
-.scope-btn.active {
+.mode-btn.active {
   background: white;
   color: var(--text-primary);
   box-shadow: 0 1px 2px rgba(0,0,0,0.1);
 }
 
-.scope-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
+.model-download-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: #fefce8;
+  border: 1px solid #fde68a;
+  border-radius: 5px;
+  font-size: 11px;
+  color: #92400e;
+  margin-bottom: 8px;
+}
+
+.model-status-downloading {
+  color: var(--accent);
+  font-style: italic;
+}
+
+.model-status-error {
+  color: var(--danger);
+  flex: 1;
 }
 
 .search-input-row {
@@ -682,6 +739,78 @@ body, #root {
 .viewer-docx .docx-preview section.docx {
   box-shadow: 0 1px 4px rgba(0,0,0,0.15);
   margin: 0 auto 12px;
+}
+
+.viewer-xlsx {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--panel-bg);
+}
+
+.xlsx-tabs {
+  display: flex;
+  gap: 2px;
+  padding: 6px 8px 0;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+}
+
+.xlsx-tab {
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-bottom: none;
+  border-radius: 4px 4px 0 0;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+}
+
+.xlsx-tab:hover:not(.active) {
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--text-primary);
+}
+
+.xlsx-tab.active {
+  background: white;
+  color: var(--accent);
+  border-color: var(--panel-border);
+}
+
+.xlsx-content {
+  flex: 1;
+  overflow: auto;
+  padding: 12px 16px;
+}
+
+.xlsx-content table {
+  border-collapse: collapse;
+  font-size: 12px;
+  width: 100%;
+}
+
+.xlsx-content td, .xlsx-content th {
+  border: 1px solid var(--panel-border);
+  padding: 4px 8px;
+  white-space: nowrap;
+  min-width: 60px;
+}
+
+.xlsx-content tr:first-child td,
+.xlsx-content th {
+  background: var(--panel-header);
+  font-weight: 600;
+}
+
+.xlsx-content tr:nth-child(even) td {
+  background: #fafafa;
 }
 
 /* ─── Loading / Error ──────────────────────────────── */

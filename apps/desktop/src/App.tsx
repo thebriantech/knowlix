@@ -85,6 +85,7 @@ export default function App() {
       </nav>
 
       <SearchPanel
+        projects={projects}
         selectedProject={selectedProject}
         onResultSelect={setSelectedResult}
         selectedResultId={selectedResult?.chunk_id ?? null}

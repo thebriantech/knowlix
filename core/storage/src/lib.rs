@@ -158,6 +158,7 @@ pub struct VectorHit {
     pub chunk_id: String,
     pub file_id: String,
     pub file_path: String,
+    pub project_id: String,
     pub score: f32,
     pub snippet: String,
 }
@@ -588,6 +589,7 @@ pub struct FtsHit {
     pub chunk_id: String,
     pub file_id: String,
     pub file_path: String,
+    pub project_id: String,
     pub score: f32,
     pub snippet: String,
 }
@@ -644,6 +646,7 @@ pub fn search_keyword_fts(
             chunk_id: get_str(f.chunk_id),
             file_id: get_str(f.file_id),
             file_path: get_str(f.file_path),
+            project_id: get_str(f.project_id),
             score,
             snippet,
         });
@@ -795,6 +798,7 @@ struct EmbeddingRow {
     chunk_id: String,
     file_id: String,
     file_path: String,
+    project_id: String,
     content: String,
     vector: Vec<u8>,
 }
@@ -807,7 +811,7 @@ pub async fn search_vector(
     let s = get_state()?;
     let rows: Vec<EmbeddingRow> = if let Some(pid) = project_id {
         sqlx::query_as::<_, EmbeddingRow>(
-            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, c.content, e.vector
+            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, fe.project_id, c.content, e.vector
              FROM embeddings e
              JOIN chunks c ON c.id = e.chunk_id
              JOIN file_entries fe ON fe.id = c.file_id
@@ -819,7 +823,7 @@ pub async fn search_vector(
         .map_err(|e| KnowlixError::Storage(e.to_string()))?
     } else {
         sqlx::query_as::<_, EmbeddingRow>(
-            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, c.content, e.vector
+            "SELECT e.chunk_id, c.file_id, fe.path AS file_path, fe.project_id, c.content, e.vector
              FROM embeddings e
              JOIN chunks c ON c.id = e.chunk_id
              JOIN file_entries fe ON fe.id = c.file_id",
@@ -847,6 +851,7 @@ pub async fn search_vector(
             chunk_id: row.chunk_id,
             file_id: row.file_id,
             file_path: row.file_path,
+            project_id: row.project_id,
             score,
             snippet: make_snippet(&row.content, 300),
         })
@@ -1494,5 +1499,69 @@ mod tests {
         let hits = search_vector(&[0.0f32, 1.0, 0.0], None, 10).await.unwrap();
         let hit = hits.iter().find(|h| h.chunk_id == chunk_id).expect("chunk must exist");
         assert!((hit.score - 1.0).abs() < 1e-5, "upsert should store latest vector, got {}", hit.score);
+    }
+
+    #[tokio::test]
+    async fn test_vector_hit_project_id() {
+        let _guard = setup().await;
+
+        let (proj_id, _file_id, chunk_id) =
+            make_project_with_file_and_chunk("ProjIdVec", ".txt", "project id vector test").await;
+
+        insert_embedding(&chunk_id, "m", &[1.0f32, 0.0, 0.0]).await.unwrap();
+
+        let hits = search_vector(&[1.0f32, 0.0, 0.0], Some(&proj_id), 10).await.unwrap();
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].project_id, proj_id, "VectorHit must carry correct project_id");
+    }
+
+    #[tokio::test]
+    async fn test_fts_hit_project_id() {
+        let _guard = setup().await;
+
+        let proj_id = uuid::Uuid::new_v4().to_string();
+        insert_project(&Project {
+            id: proj_id.clone(),
+            name: format!("FtsProj-{}", &proj_id[..8]),
+            description: None,
+            folders: vec![],
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        })
+        .await
+        .unwrap();
+
+        let file_id = uuid::Uuid::new_v4().to_string();
+        upsert_file_entry(&FileEntry {
+            id: file_id.clone(),
+            project_id: proj_id.clone(),
+            path: format!("/tmp/fts-pid-{}.txt", &file_id[..8]),
+            file_type: FileType::Text,
+            language: None,
+            size_bytes: 30,
+            content_hash: file_id.clone(),
+            last_indexed: Utc::now(),
+            indexed: true,
+        })
+        .await
+        .unwrap();
+
+        let chunk_id = uuid::Uuid::new_v4().to_string();
+        let chunk = Chunk {
+            id: chunk_id.clone(),
+            file_id: file_id.clone(),
+            chunk_index: 0,
+            content: "fts project id propagation check".into(),
+            token_count: 6,
+            start_byte: 0,
+            end_byte: 33,
+        };
+        insert_chunks(vec![chunk.clone()]).await.unwrap();
+        index_chunk_fts(&chunk, &format!("/tmp/fts-pid-{}.txt", &file_id[..8]), &proj_id).unwrap();
+        commit_fts().unwrap();
+
+        let hits = search_keyword_fts("propagation", Some(&proj_id), 10).unwrap();
+        assert!(!hits.is_empty(), "FTS must find indexed content");
+        assert_eq!(hits[0].project_id, proj_id, "FtsHit must carry correct project_id");
     }
 }

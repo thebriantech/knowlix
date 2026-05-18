@@ -101,6 +101,7 @@ Api
 ```
 file_id:    String
 file_path:  String
+project_id: String             -- which project this result belongs to
 chunk_id:   String
 snippet:    String             -- ~300 chars, matches highlighted
 score:      f32                -- normalized 0.0–1.0

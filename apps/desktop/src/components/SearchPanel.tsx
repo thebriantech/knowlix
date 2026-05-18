@@ -1,9 +1,10 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api';
 import type { Project, SearchResult, EmbeddingModelStatus, SearchMode } from '../types';
 
 interface Props {
+  projects: Project[];
   selectedProject: Project | null;
   onResultSelect: (result: SearchResult) => void;
   selectedResultId: string | null;
@@ -19,28 +20,41 @@ function dirname(path: string): string {
   return parts.join('/') || '/';
 }
 
-export function SearchPanel({ selectedProject, onResultSelect, selectedResultId }: Props) {
+function getFileTypeCategory(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() ?? '';
+  if (['md', 'mdx'].includes(ext)) return 'markdown';
+  if (['txt', 'log'].includes(ext)) return 'text';
+  if (ext === 'pdf') return 'pdf';
+  if (ext === 'docx') return 'word';
+  if (ext === 'xlsx') return 'excel';
+  if (['png', 'jpg', 'jpeg', 'gif', 'svg', 'webp'].includes(ext)) return 'image';
+  return 'code';
+}
+
+export function SearchPanel({ projects, selectedProject, onResultSelect, selectedResultId }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
   const [searching, setSearching] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searched, setSearched] = useState(false);
-  const [scopeAll, setScopeAll] = useState(false);
+  const [searchProjectId, setSearchProjectId] = useState<string | undefined>(
+    selectedProject?.id ?? undefined
+  );
   const [mode, setMode] = useState<SearchMode>('keyword');
+  const [fileTypeFilter, setFileTypeFilter] = useState('');
   const [modelStatus, setModelStatus] = useState<EmbeddingModelStatus>({
     ready: false,
     downloading: false,
   });
-  useEffect(() => {
-    if (!selectedProject) setScopeAll(true);
-  }, [selectedProject]);
 
-  // Load initial model status
+  useEffect(() => {
+    setSearchProjectId(selectedProject?.id ?? undefined);
+  }, [selectedProject?.id]);
+
   useEffect(() => {
     api.getEmbeddingModelStatus().then(setModelStatus).catch(() => {});
   }, []);
 
-  // Subscribe to model download events
   useEffect(() => {
     let unlisten1: (() => void) | null = null;
     let unlisten2: (() => void) | null = null;
@@ -65,8 +79,6 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
     };
   }, []);
 
-  const effectiveProjectId = scopeAll ? undefined : selectedProject?.id;
-
   const doSearch = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
@@ -76,11 +88,11 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
     try {
       let res: SearchResult[];
       if (mode === 'keyword') {
-        res = await api.searchKeyword(q, effectiveProjectId, 20);
+        res = await api.searchKeyword(q, searchProjectId, 20);
       } else if (mode === 'semantic') {
-        res = await api.searchSemantic(q, effectiveProjectId, 20);
+        res = await api.searchSemantic(q, searchProjectId, 20);
       } else {
-        res = await api.search(q, effectiveProjectId, 20);
+        res = await api.search(q, searchProjectId, 20);
       }
       setResults(res);
     } catch (e) {
@@ -89,7 +101,7 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
     } finally {
       setSearching(false);
     }
-  }, [query, effectiveProjectId, mode]);
+  }, [query, searchProjectId, mode]);
 
   const handleDownloadModel = useCallback(async () => {
     try {
@@ -101,24 +113,81 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
 
   const needsModel = mode !== 'keyword' && !modelStatus.ready;
 
+  const projectMap = useMemo(() => {
+    const m = new Map<string, string>();
+    projects.forEach(p => m.set(p.id, p.name));
+    return m;
+  }, [projects]);
+
+  const filteredResults = useMemo(() => {
+    if (!fileTypeFilter) return results;
+    return results.filter(r => getFileTypeCategory(r.file_path) === fileTypeFilter);
+  }, [results, fileTypeFilter]);
+
+  const displayGroups = useMemo(() => {
+    if (searchProjectId !== undefined || filteredResults.length === 0) return null;
+    const groupMap = new Map<string, SearchResult[]>();
+    for (const r of filteredResults) {
+      const g = groupMap.get(r.project_id) ?? [];
+      g.push(r);
+      groupMap.set(r.project_id, g);
+    }
+    return Array.from(groupMap.entries()).map(([pid, res]) => ({
+      projectId: pid,
+      projectName: projectMap.get(pid) ?? pid,
+      results: res,
+    }));
+  }, [filteredResults, searchProjectId, projectMap]);
+
+  function renderResult(r: SearchResult) {
+    return (
+      <div
+        key={r.chunk_id}
+        className={`result-item${selectedResultId === r.chunk_id ? ' selected' : ''}`}
+        onClick={() => onResultSelect(r)}
+      >
+        <div className="result-filename">{basename(r.file_path)}</div>
+        <div className="result-path">{dirname(r.file_path)}</div>
+        <div className="result-snippet">{r.snippet}</div>
+        <div className="result-meta">
+          <span className="result-source">{r.source.toUpperCase()}</span>
+          <span className="result-score">{r.score.toFixed(3)}</span>
+        </div>
+      </div>
+    );
+  }
+
+  const totalFiltered = filteredResults.length;
+
   return (
     <div className="search-panel">
       <div className="search-header">
-        <div className="search-scope-toggle">
-          <button
-            className={`scope-btn${!scopeAll ? ' active' : ''}`}
-            onClick={() => setScopeAll(false)}
-            disabled={!selectedProject}
-            title={selectedProject ? selectedProject.name : 'No project selected'}
+        <div className="search-filters-row">
+          <select
+            className="search-filter-select"
+            value={searchProjectId ?? ''}
+            onChange={e => setSearchProjectId(e.target.value || undefined)}
           >
-            This project
-          </button>
-          <button
-            className={`scope-btn${scopeAll ? ' active' : ''}`}
-            onClick={() => setScopeAll(true)}
+            <option value="">All projects</option>
+            {projects.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+
+          <select
+            className="search-filter-select"
+            value={fileTypeFilter}
+            onChange={e => setFileTypeFilter(e.target.value)}
           >
-            All projects
-          </button>
+            <option value="">All types</option>
+            <option value="code">Code</option>
+            <option value="markdown">Markdown</option>
+            <option value="text">Text</option>
+            <option value="pdf">PDF</option>
+            <option value="word">Word</option>
+            <option value="excel">Excel</option>
+            <option value="image">Image</option>
+          </select>
         </div>
 
         <div className="search-mode-toggle">
@@ -176,27 +245,20 @@ export function SearchPanel({ selectedProject, onResultSelect, selectedResultId 
 
       {searched && !searching && (
         <div className="search-results-header">
-          {results.length > 0 ? `${results.length} results` : 'No results'}
+          {totalFiltered > 0 ? `${totalFiltered} result${totalFiltered !== 1 ? 's' : ''}` : 'No results'}
         </div>
       )}
 
       <div className="search-results">
-        {results.length > 0
-          ? results.map(r => (
-              <div
-                key={r.chunk_id}
-                className={`result-item${selectedResultId === r.chunk_id ? ' selected' : ''}`}
-                onClick={() => onResultSelect(r)}
-              >
-                <div className="result-filename">{basename(r.file_path)}</div>
-                <div className="result-path">{dirname(r.file_path)}</div>
-                <div className="result-snippet">{r.snippet}</div>
-                <div className="result-meta">
-                  <span className="result-source">{r.source.toUpperCase()}</span>
-                  <span className="result-score">{r.score.toFixed(3)}</span>
+        {filteredResults.length > 0
+          ? displayGroups
+            ? displayGroups.map(group => (
+                <div key={group.projectId} className="result-group">
+                  <div className="result-group-header">{group.projectName}</div>
+                  {group.results.map(r => renderResult(r))}
                 </div>
-              </div>
-            ))
+              ))
+            : filteredResults.map(r => renderResult(r))
           : !searching && (
               <div className="empty-state">
                 <div className="empty-state-icon">🔍</div>
