@@ -183,3 +183,10 @@ pub struct AiHealthStatus {
     pub reachable: bool,
     pub error: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EmbeddingModelStatus {
+    pub ready: bool,
+    pub downloading: bool,
+    pub error: Option<String>,
+}

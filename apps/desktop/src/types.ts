@@ -57,3 +57,11 @@ export type ViewContent =
   | { type: 'plain_text'; content: string }
   | { type: 'pdf'; data: string }
   | { type: 'docx'; data: string };
+
+export interface EmbeddingModelStatus {
+  ready: boolean;
+  downloading: boolean;
+  error?: string;
+}
+
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid';

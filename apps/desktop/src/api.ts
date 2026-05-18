@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Project, SearchResult, IndexStats, IndexStatus, ViewContent } from './types';
+import type { Project, SearchResult, IndexStats, IndexStatus, ViewContent, EmbeddingModelStatus } from './types';
 
 export const api = {
   createProject: (name: string, description?: string) =>
@@ -19,6 +19,12 @@ export const api = {
   search: (query: string, projectId?: string, limit = 20) =>
     invoke<SearchResult[]>('search', { query, projectId, limit }),
 
+  searchKeyword: (query: string, projectId?: string, limit = 20) =>
+    invoke<SearchResult[]>('search_keyword', { query, projectId, limit }),
+
+  searchSemantic: (query: string, projectId?: string, limit = 20) =>
+    invoke<SearchResult[]>('search_semantic', { query, projectId, limit }),
+
   reindexProject: (projectId: string) =>
     invoke<IndexStats>('reindex_project', { projectId }),
 
@@ -33,4 +39,10 @@ export const api = {
 
   stopFileWatcher: (projectId: string) =>
     invoke<void>('stop_file_watcher', { projectId }),
+
+  getEmbeddingModelStatus: () =>
+    invoke<EmbeddingModelStatus>('get_embedding_model_status'),
+
+  ensureEmbeddingModel: () =>
+    invoke<void>('ensure_embedding_model'),
 };

@@ -26,6 +26,7 @@ async fn index_file_impl(file_path: &str, project_id: &str, commit: bool) -> Res
         if existing.content_hash == content_hash {
             return Ok(());
         }
+        knowlix_storage::delete_embeddings_for_file(&existing.id).await?;
         let fid = existing.id.clone();
         tokio::task::spawn_blocking(move || knowlix_storage::remove_file_from_fts(&fid))
             .await
@@ -75,7 +76,11 @@ async fn index_file_impl(file_path: &str, project_id: &str, commit: bool) -> Res
     .await
     .map_err(|e| KnowlixError::Index(e.to_string()))??;
 
-    knowlix_storage::insert_chunks(chunks).await?;
+    knowlix_storage::insert_chunks(chunks.clone()).await?;
+
+    if knowlix_storage::is_embedding_ready() {
+        embed_and_store_chunks(&chunks).await;
+    }
 
     if commit {
         tokio::task::spawn_blocking(knowlix_storage::commit_fts)
@@ -86,9 +91,32 @@ async fn index_file_impl(file_path: &str, project_id: &str, commit: bool) -> Res
     Ok(())
 }
 
+async fn embed_and_store_chunks(chunks: &[Chunk]) {
+    let texts: Vec<String> = chunks.iter().map(|c| c.content.clone()).collect();
+    match knowlix_storage::embed_texts(texts).await {
+        Ok(embeddings) => {
+            for (chunk, emb) in chunks.iter().zip(embeddings.iter()) {
+                if let Err(e) = knowlix_storage::insert_embedding(
+                    &chunk.id,
+                    knowlix_storage::EMBEDDING_MODEL_NAME,
+                    emb,
+                )
+                .await
+                {
+                    tracing::warn!("[indexer] embed store failed chunk={} err={e}", chunk.id);
+                }
+            }
+        }
+        Err(e) => {
+            tracing::warn!("[indexer] embed_texts failed err={e}");
+        }
+    }
+}
+
 pub async fn remove_file(file_path: &str) -> Result<()> {
     if let Some(entry) = knowlix_storage::get_file_entry(file_path).await? {
         let fid = entry.id.clone();
+        knowlix_storage::delete_embeddings_for_file(&fid).await?;
         tokio::task::spawn_blocking(move || knowlix_storage::remove_file_from_fts(&fid))
             .await
             .map_err(|e| KnowlixError::Index(e.to_string()))??;

@@ -146,6 +146,30 @@ insert_chunks(chunks: Vec<Chunk>) -> Result<()>
 get_chunks_for_file(file_id: &str) -> Result<Vec<Chunk>>
 delete_chunks_for_file(file_id: &str) -> Result<()>
 
+// Embeddings (Phase 3)
+set_embedding_cache_dir(dir: PathBuf) -> ()
+is_embedding_ready() -> bool
+is_embedding_downloading() -> bool
+get_embedding_model_status() -> EmbeddingModelStatus
+ensure_embedding_model_blocking() -> Result<()>    // blocking, call from spawn_blocking
+embed_texts(texts: Vec<String>) -> Result<Vec<Vec<f32>>>
+insert_embedding(chunk_id: &str, model: &str, vector: &[f32]) -> Result<()>
+delete_embeddings_for_file(file_id: &str) -> Result<()>
+search_vector(query_vector: &[f32], project_id: Option<&str>, limit: usize) -> Result<Vec<VectorHit>>
+```
+
+VectorHit:
+```rust
+struct VectorHit {
+    chunk_id: String,
+    file_id: String,
+    file_path: String,
+    score: f32,
+    snippet: String,
+}
+```
+
+```rust
 // Wiki pages
 upsert_wiki_page(page: &WikiPage) -> Result<()>
 get_wiki_pages_for_project(project_id: &str) -> Result<Vec<WikiPage>>
