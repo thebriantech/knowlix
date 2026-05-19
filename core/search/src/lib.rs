@@ -27,6 +27,7 @@ pub async fn search(
     struct Entry {
         file_id: String,
         file_path: String,
+        project_id: String,
         snippet: String,
         bm25_rank: Option<i32>,
         vec_rank: Option<i32>,
@@ -40,6 +41,7 @@ pub async fn search(
         let e = map.entry(r.chunk_id.clone()).or_insert(Entry {
             file_id: r.file_id.clone(),
             file_path: r.file_path.clone(),
+            project_id: r.project_id.clone(),
             snippet: r.snippet.clone(),
             bm25_rank: None,
             vec_rank: None,
@@ -54,6 +56,7 @@ pub async fn search(
         let e = map.entry(r.chunk_id.clone()).or_insert(Entry {
             file_id: r.file_id.clone(),
             file_path: r.file_path.clone(),
+            project_id: r.project_id.clone(),
             snippet: r.snippet.clone(),
             bm25_rank: None,
             vec_rank: None,
@@ -75,6 +78,7 @@ pub async fn search(
         .map(|(chunk_id, e)| SearchResult {
             file_id: e.file_id,
             file_path: e.file_path,
+            project_id: e.project_id,
             chunk_id,
             snippet: e.snippet,
             score: e.rrf,
@@ -109,6 +113,7 @@ pub async fn search_keyword(
         .map(|(rank, hit)| SearchResult {
             file_id: hit.file_id,
             file_path: hit.file_path,
+            project_id: hit.project_id,
             chunk_id: hit.chunk_id,
             snippet: hit.snippet,
             score: hit.score,
@@ -147,6 +152,7 @@ pub async fn search_semantic(
         .map(|(rank, h)| SearchResult {
             file_id: h.file_id,
             file_path: h.file_path,
+            project_id: h.project_id,
             chunk_id: h.chunk_id,
             snippet: h.snippet,
             score: h.score,
@@ -235,6 +241,7 @@ mod tests {
         let r = SearchResult {
             file_id: "fid".into(),
             file_path: "/tmp/f.txt".into(),
+            project_id: "pid".into(),
             chunk_id: "cid".into(),
             snippet: "hello".into(),
             score: 0.9,
@@ -355,5 +362,61 @@ mod tests {
         // A result appearing in both BM25 and vector at rank 1 should score 2/(61) ≈ 0.0328
         let combined = rank1_score + rank1_score;
         assert!((combined - 2.0 / 61.0).abs() < 1e-6);
+    }
+
+    #[tokio::test]
+    async fn test_search_keyword_result_carries_project_id() {
+        let _guard = setup().await;
+
+        let proj_id = uuid::Uuid::new_v4().to_string();
+        let project = knowlix_common::Project {
+            id: proj_id.clone(),
+            name: format!("ProjIdSearch-{}", &proj_id[..8]),
+            description: None,
+            folders: vec![],
+            created_at: chrono::Utc::now(),
+            updated_at: chrono::Utc::now(),
+        };
+        knowlix_storage::insert_project(&project).await.unwrap();
+
+        let _f = index_temp_file("project id propagation keyword search", &proj_id).await;
+
+        let results = search_keyword("propagation", Some(&proj_id), 10).await.unwrap();
+        assert!(!results.is_empty(), "must find indexed content");
+        for r in &results {
+            assert_eq!(r.project_id, proj_id, "SearchResult.project_id must match indexed project");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_search_all_projects_returns_correct_project_ids() {
+        let _guard = setup().await;
+
+        let proj_a = uuid::Uuid::new_v4().to_string();
+        let proj_b = uuid::Uuid::new_v4().to_string();
+
+        for (id, name) in [(&proj_a, "MultiProjA"), (&proj_b, "MultiProjB")] {
+            knowlix_storage::insert_project(&knowlix_common::Project {
+                id: id.to_string(),
+                name: format!("{}-{}", name, &id[..8]),
+                description: None,
+                folders: vec![],
+                created_at: chrono::Utc::now(),
+                updated_at: chrono::Utc::now(),
+            })
+            .await
+            .unwrap();
+        }
+
+        let unique_token = uuid::Uuid::new_v4().to_string().replace('-', "");
+        let _fa = index_temp_file(&format!("multiproject {} alpha", unique_token), &proj_a).await;
+        let _fb = index_temp_file(&format!("multiproject {} beta", unique_token), &proj_b).await;
+
+        let results = search_keyword(&unique_token, None, 20).await.unwrap();
+        assert_eq!(results.len(), 2, "all-projects search must return one result per project");
+
+        let ids: std::collections::HashSet<_> = results.iter().map(|r| r.project_id.clone()).collect();
+        assert!(ids.contains(&proj_a), "proj_a must appear in results");
+        assert!(ids.contains(&proj_b), "proj_b must appear in results");
     }
 }

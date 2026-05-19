@@ -14,6 +14,7 @@ pub enum ViewContent {
     PlainText { content: String },
     Pdf { data: String },
     Docx { data: String },
+    Xlsx { data: String },
 }
 
 pub async fn get_view_content(file_path: &str) -> Result<ViewContent> {
@@ -61,6 +62,10 @@ pub async fn get_view_content(file_path: &str) -> Result<ViewContent> {
         "docx" => {
             let data = std::fs::read(file_path)?;
             Ok(ViewContent::Docx { data: STANDARD.encode(&data) })
+        }
+        "xlsx" => {
+            let data = std::fs::read(file_path)?;
+            Ok(ViewContent::Xlsx { data: STANDARD.encode(&data) })
         }
         _ => {
             // Treat as code
@@ -188,6 +193,13 @@ mod tests {
         let f = write_temp("docx", b"PK fake docx bytes");
         let result = get_view_content(f.path().to_str().unwrap()).await.unwrap();
         assert!(matches!(result, ViewContent::Docx { .. }));
+    }
+
+    #[tokio::test]
+    async fn test_view_xlsx_returns_data() {
+        let f = write_temp("xlsx", b"PK fake xlsx bytes");
+        let result = get_view_content(f.path().to_str().unwrap()).await.unwrap();
+        assert!(matches!(result, ViewContent::Xlsx { .. }));
     }
 
     #[test]

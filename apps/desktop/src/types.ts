@@ -10,6 +10,7 @@ export interface Project {
 export interface SearchResult {
   file_id: string;
   file_path: string;
+  project_id: string;
   chunk_id: string;
   snippet: string;
   score: number;
@@ -56,7 +57,8 @@ export type ViewContent =
   | { type: 'image'; data_uri: string; mime: string }
   | { type: 'plain_text'; content: string }
   | { type: 'pdf'; data: string }
-  | { type: 'docx'; data: string };
+  | { type: 'docx'; data: string }
+  | { type: 'xlsx'; data: string };
 
 export interface EmbeddingModelStatus {
   ready: boolean;

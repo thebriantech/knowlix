@@ -53,15 +53,15 @@ Milestone: user gets semantic results "find all docs about authentication" witho
 
 ---
 
-## Phase 4 — Multi-project + Global Search
+## Phase 4 — Multi-project + Global Search ✅ COMPLETE
 
 Goal: search across all projects simultaneously.
 
 - [x] Cross-project search backend (project_id = None) — tantivy query already filters by project or searches all; UI has "This project / All projects" scope toggle in SearchPanel
-- [ ] Search result grouping by project (results do not yet show project name)
-- [ ] Project filter dropdown in search UI (currently only "this project" or "all")
-- [ ] Excel (.xlsx) viewer (SheetJS) — indexing already done in Phase 2; viewer not implemented
-- [ ] File type filter in search UI
+- [x] Search result grouping by project (results grouped by project name when "All projects" selected)
+- [x] Project filter dropdown in search UI (select dropdown replaces toggle — lists all projects)
+- [x] Excel (.xlsx) viewer (SheetJS) — renders sheets as tables, multi-sheet tabs
+- [x] File type filter in search UI (dropdown: All / Code / Markdown / Text / PDF / Word / Excel / Image)
 
 Milestone: user can search "deployment config" across all their projects at once.
 

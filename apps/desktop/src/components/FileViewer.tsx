@@ -202,6 +202,74 @@ function PdfViewer({ data }: { data: string }) {
   );
 }
 
+function XlsxViewer({ data }: { data: string }) {
+  const [sheets, setSheets] = useState<{ name: string; html: string }[]>([]);
+  const [activeSheet, setActiveSheet] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setSheets([]);
+
+    (async () => {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const XLSX = await import('xlsx') as any;
+        const bytes = decodeBase64ToBytes(data);
+        const wb = XLSX.read(bytes, { type: 'array' });
+        if (cancelled) return;
+        const parsed = (wb.SheetNames as string[]).map(name => ({
+          name,
+          html: XLSX.utils.sheet_to_html(wb.Sheets[name]) as string,
+        }));
+        if (!cancelled) {
+          setSheets(parsed);
+          setActiveSheet(0);
+          setLoading(false);
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setError(String(e));
+          setLoading(false);
+        }
+      }
+    })();
+
+    return () => { cancelled = true; };
+  }, [data]);
+
+  return (
+    <div className="viewer-xlsx">
+      {loading && !error && <div className="loading">Loading spreadsheet…</div>}
+      {error && <div className="error-msg" style={{ margin: 16 }}>{error}</div>}
+      {!loading && !error && sheets.length > 0 && (
+        <>
+          {sheets.length > 1 && (
+            <div className="xlsx-tabs">
+              {sheets.map((s, i) => (
+                <button
+                  key={s.name}
+                  className={`xlsx-tab${activeSheet === i ? ' active' : ''}`}
+                  onClick={() => setActiveSheet(i)}
+                >
+                  {s.name}
+                </button>
+              ))}
+            </div>
+          )}
+          <div
+            className="xlsx-content"
+            dangerouslySetInnerHTML={{ __html: sheets[activeSheet]?.html ?? '' }}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
 function DocxViewer({ data }: { data: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [loading, setLoading] = useState(true);
@@ -337,6 +405,9 @@ export function FileViewer({ result }: Props) {
       case 'docx':
         return <DocxViewer data={viewContent.data} />;
 
+      case 'xlsx':
+        return <XlsxViewer data={viewContent.data} />;
+
       default:
         return <div className="error-msg" style={{ margin: 16 }}>Unknown content type.</div>;
     }
@@ -349,6 +420,7 @@ export function FileViewer({ result }: Props) {
     if (viewContent.type === 'image') return <span className="viewer-lang-badge">{viewContent.mime}</span>;
     if (viewContent.type === 'pdf') return <span className="viewer-lang-badge">pdf</span>;
     if (viewContent.type === 'docx') return <span className="viewer-lang-badge">docx</span>;
+    if (viewContent.type === 'xlsx') return <span className="viewer-lang-badge">xlsx</span>;
     return null;
   }
 
