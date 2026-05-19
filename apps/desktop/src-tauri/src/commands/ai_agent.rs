@@ -1,4 +1,4 @@
-use knowlix_common::{AiAnswer, AiHealthStatus, AiTier};
+use knowlix_common::{AiAnswer, AiConfig, AiHealthStatus, AiTier};
 
 #[tauri::command]
 pub async fn answer_question(
@@ -17,5 +17,23 @@ pub fn get_ai_tier() -> AiTier {
 
 #[tauri::command]
 pub async fn health_check() -> Result<AiHealthStatus, String> {
-    knowlix_ai_agent::health_check().await.map_err(|e| e.to_string())
+    knowlix_ai_agent::health_check()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn get_ai_config() -> Result<AiConfig, String> {
+    knowlix_storage::get_ai_config()
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn save_ai_config(config: AiConfig) -> Result<(), String> {
+    knowlix_storage::save_ai_config(&config)
+        .await
+        .map_err(|e| e.to_string())?;
+    knowlix_ai_agent::update_config(config);
+    Ok(())
 }

@@ -1154,3 +1154,205 @@ body, #root {
   from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+/* ─── AI Settings Modal ────────────────────────────────── */
+
+.ai-settings-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ai-settings-label {
+  width: 90px;
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
+.ai-settings-input {
+  flex: 1;
+  padding: 6px 10px;
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  border-radius: 5px;
+  font-size: 13px;
+  color: var(--text-primary);
+  outline: none;
+  transition: border-color 0.15s;
+}
+
+.ai-settings-input:focus {
+  border-color: var(--input-focus);
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.08);
+}
+
+/* AI status dot (green/red/grey indicator) */
+.ai-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+
+/* ─── Sidebar AI footer ────────────────────────────────── */
+
+.sidebar-ai-footer {
+  padding: 8px 10px;
+  border-top: 1px solid var(--sidebar-border);
+  flex-shrink: 0;
+}
+
+.sidebar-ai-btn {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 8px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--sidebar-border);
+  border-radius: 5px;
+  color: var(--sidebar-muted);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s;
+}
+
+.sidebar-ai-btn:hover {
+  background: var(--sidebar-hover);
+  color: var(--sidebar-text);
+}
+
+/* ─── Wiki Viewer ──────────────────────────────────────── */
+
+.wiki-viewer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: var(--panel-bg);
+}
+
+.wiki-viewer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.wiki-viewer-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.wiki-ai-notice {
+  padding: 10px 14px;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: #fefce8;
+  border-bottom: 1px solid #fde68a;
+}
+
+.wiki-progress-wrap {
+  padding: 8px 14px;
+  background: var(--panel-header);
+  border-bottom: 1px solid var(--panel-border);
+  flex-shrink: 0;
+}
+
+.wiki-progress-label {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.wiki-progress-bar-track {
+  height: 4px;
+  background: var(--panel-border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.wiki-progress-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.2s ease;
+}
+
+.wiki-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.wiki-list {
+  width: 200px;
+  min-width: 160px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--panel-border);
+  overflow-y: auto;
+  background: var(--panel-header);
+}
+
+.wiki-list::-webkit-scrollbar { width: 4px; }
+.wiki-list::-webkit-scrollbar-track { background: transparent; }
+.wiki-list::-webkit-scrollbar-thumb {
+  background: var(--panel-border);
+  border-radius: 2px;
+}
+
+.wiki-list-item {
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  cursor: pointer;
+  border-bottom: 1px solid var(--panel-border);
+  transition: background 0.1s, color 0.1s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.wiki-list-item:hover {
+  background: rgba(99, 102, 241, 0.06);
+  color: var(--text-primary);
+}
+
+.wiki-list-item.selected {
+  background: var(--accent-light);
+  color: var(--accent);
+  border-left: 3px solid var(--accent);
+}
+
+.wiki-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--panel-bg);
+}
+
+.wiki-content::-webkit-scrollbar { width: 6px; }
+.wiki-content::-webkit-scrollbar-track { background: transparent; }
+.wiki-content::-webkit-scrollbar-thumb {
+  background: var(--panel-border);
+  border-radius: 3px;
+}
+
+/* ─── Ask mode ─────────────────────────────────────────── */
+
+.ask-notice {
+  padding: 12px 14px;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: #fef9c3;
+  border-bottom: 1px solid #fde68a;
+  line-height: 1.5;
+}
