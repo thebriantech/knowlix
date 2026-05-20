@@ -1,5 +1,17 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Project, SearchResult, IndexStats, IndexStatus, ViewContent, EmbeddingModelStatus } from './types';
+import type {
+  AiAnswer,
+  AiConfig,
+  AiHealthStatus,
+  AiTier,
+  EmbeddingModelStatus,
+  IndexStats,
+  IndexStatus,
+  Project,
+  SearchResult,
+  ViewContent,
+  WikiPage,
+} from './types';
 
 export const api = {
   createProject: (name: string, description?: string) =>
@@ -45,4 +57,29 @@ export const api = {
 
   ensureEmbeddingModel: () =>
     invoke<void>('ensure_embedding_model'),
+
+  // ── AI / Phase 5 ────────────────────────────────────────
+
+  getAiConfig: () => invoke<AiConfig>('get_ai_config'),
+
+  saveAiConfig: (config: AiConfig) =>
+    invoke<void>('save_ai_config', { config }),
+
+  healthCheck: () => invoke<AiHealthStatus>('health_check'),
+
+  getAiTier: () => invoke<AiTier>('get_ai_tier'),
+
+  answerQuestion: (query: string, projectId?: string) =>
+    invoke<AiAnswer>('answer_question', { query, projectId }),
+
+  generateProjectWiki: (projectId: string, forceRegenerate: boolean) =>
+    invoke<void>('generate_project_wiki', { projectId, forceRegenerate }),
+
+  generateGlobalWiki: (forceRegenerate: boolean) =>
+    invoke<void>('generate_global_wiki', { forceRegenerate }),
+
+  getProjectWiki: (projectId: string) =>
+    invoke<WikiPage[]>('get_project_wiki', { projectId }),
+
+  getGlobalWiki: () => invoke<WikiPage[]>('get_global_wiki'),
 };

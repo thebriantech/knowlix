@@ -1,7 +1,7 @@
 import { useState, useCallback, useEffect, useMemo } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { api } from '../api';
-import type { Project, SearchResult, EmbeddingModelStatus, SearchMode } from '../types';
+import type { AiAnswer, AiTier, EmbeddingModelStatus, Project, SearchMode, SearchResult } from '../types';
 
 interface Props {
   projects: Project[];
@@ -31,6 +31,27 @@ function getFileTypeCategory(filePath: string): string {
   return 'code';
 }
 
+function renderAnswerMarkdown(md: string): string {
+  let html = md
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/```[\w]*\n?([\s\S]*?)```/g, '<pre><code>$1</code></pre>')
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/^---$/gm, '<hr>')
+    .replace(/^> (.+)$/gm, '<blockquote>$1</blockquote>')
+    .replace(/^[-*] (.+)$/gm, '<li>$1</li>')
+    .replace(/\n\n(?!<)/g, '</p><p>');
+  html = html.replace(/(<li>.*<\/li>(\n|$))+/g, (m) => `<ul>${m}</ul>`);
+  return `<p>${html}</p>`;
+}
+
 export function SearchPanel({ projects, selectedProject, onResultSelect, selectedResultId }: Props) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -47,12 +68,21 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
     downloading: false,
   });
 
+  // Ask mode state
+  const [aiAnswer, setAiAnswer] = useState<AiAnswer | null>(null);
+  const [asking, setAsking] = useState(false);
+  const [aiTier, setAiTier] = useState<AiTier>('none');
+
   useEffect(() => {
     setSearchProjectId(selectedProject?.id ?? undefined);
   }, [selectedProject?.id]);
 
   useEffect(() => {
     api.getEmbeddingModelStatus().then(setModelStatus).catch(() => {});
+  }, []);
+
+  useEffect(() => {
+    api.getAiTier().then(setAiTier).catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -82,6 +112,22 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
   const doSearch = useCallback(async () => {
     const q = query.trim();
     if (!q) return;
+
+    if (mode === 'ask') {
+      setAsking(true);
+      setAiAnswer(null);
+      setError(null);
+      try {
+        const answer = await api.answerQuestion(q, searchProjectId);
+        setAiAnswer(answer);
+      } catch (e) {
+        setError(String(e));
+      } finally {
+        setAsking(false);
+      }
+      return;
+    }
+
     setSearching(true);
     setError(null);
     setSearched(true);
@@ -111,7 +157,7 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
     }
   }, []);
 
-  const needsModel = mode !== 'keyword' && !modelStatus.ready;
+  const needsModel = (mode === 'semantic' || mode === 'hybrid') && !modelStatus.ready;
 
   const projectMap = useMemo(() => {
     const m = new Map<string, string>();
@@ -158,46 +204,75 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
   }
 
   const totalFiltered = filteredResults.length;
+  const isAskMode = mode === 'ask';
+
+  const searchModes: Array<{ key: SearchMode; label: string }> = [
+    { key: 'keyword', label: 'Keyword' },
+    { key: 'semantic', label: 'Semantic' },
+    { key: 'hybrid', label: 'Hybrid' },
+    { key: 'ask', label: 'Ask' },
+  ];
 
   return (
     <div className="search-panel">
       <div className="search-header">
-        <div className="search-filters-row">
-          <select
-            className="search-filter-select"
-            value={searchProjectId ?? ''}
-            onChange={e => setSearchProjectId(e.target.value || undefined)}
-          >
-            <option value="">All projects</option>
-            {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
-            ))}
-          </select>
+        {!isAskMode && (
+          <div className="search-filters-row">
+            <select
+              className="search-filter-select"
+              value={searchProjectId ?? ''}
+              onChange={e => setSearchProjectId(e.target.value || undefined)}
+            >
+              <option value="">All projects</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
 
-          <select
-            className="search-filter-select"
-            value={fileTypeFilter}
-            onChange={e => setFileTypeFilter(e.target.value)}
-          >
-            <option value="">All types</option>
-            <option value="code">Code</option>
-            <option value="markdown">Markdown</option>
-            <option value="text">Text</option>
-            <option value="pdf">PDF</option>
-            <option value="word">Word</option>
-            <option value="excel">Excel</option>
-            <option value="image">Image</option>
-          </select>
-        </div>
+            <select
+              className="search-filter-select"
+              value={fileTypeFilter}
+              onChange={e => setFileTypeFilter(e.target.value)}
+            >
+              <option value="">All types</option>
+              <option value="code">Code</option>
+              <option value="markdown">Markdown</option>
+              <option value="text">Text</option>
+              <option value="pdf">PDF</option>
+              <option value="word">Word</option>
+              <option value="excel">Excel</option>
+              <option value="image">Image</option>
+            </select>
+          </div>
+        )}
+
+        {isAskMode && (
+          <div className="search-filters-row">
+            <select
+              className="search-filter-select"
+              value={searchProjectId ?? ''}
+              onChange={e => setSearchProjectId(e.target.value || undefined)}
+            >
+              <option value="">All projects</option>
+              {projects.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        )}
 
         <div className="search-mode-toggle">
-          {(['keyword', 'semantic', 'hybrid'] as SearchMode[]).map(m => (
+          {searchModes.map(m => (
             <button
-              key={m}
-              className={`mode-btn${mode === m ? ' active' : ''}`}
-              onClick={() => setMode(m)}
+              key={m.key}
+              className={`mode-btn${mode === m.key ? ' active' : ''}`}
+              onClick={() => {
+                setMode(m.key);
+                setAiAnswer(null);
+                setError(null);
+              }}
             >
-              {m.charAt(0).toUpperCase() + m.slice(1)}
+              {m.label}
             </button>
           ))}
         </div>
@@ -228,51 +303,107 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => e.key === 'Enter' && doSearch()}
-            placeholder="Search files…"
+            placeholder={
+              isAskMode
+                ? 'Ask a question about your files…'
+                : 'Search files…'
+            }
             autoFocus
           />
           <button
             className="btn btn-primary"
             onClick={doSearch}
-            disabled={searching || !query.trim() || (needsModel && !modelStatus.ready)}
+            disabled={
+              isAskMode
+                ? asking || !query.trim() || aiTier === 'none'
+                : searching || !query.trim() || (needsModel && !modelStatus.ready)
+            }
           >
-            {searching ? '…' : '🔍'}
+            {isAskMode ? (asking ? '…' : 'Ask') : (searching ? '…' : 'Search')}
           </button>
         </div>
       </div>
 
       {error && <div className="error-msg">{error}</div>}
 
-      {searched && !searching && (
-        <div className="search-results-header">
-          {totalFiltered > 0 ? `${totalFiltered} result${totalFiltered !== 1 ? 's' : ''}` : 'No results'}
+      {/* Ask mode result */}
+      {isAskMode && (
+        <div className="search-results" style={{ padding: 0 }}>
+          {aiTier === 'none' && !asking && !aiAnswer && (
+            <div className="ask-notice">
+              Enable Ollama in AI Settings (gear icon at bottom of sidebar) to use Ask mode.
+            </div>
+          )}
+          {asking && (
+            <div className="loading" style={{ padding: 24 }}>
+              Thinking…
+            </div>
+          )}
+          {aiAnswer && (
+            <div style={{ padding: '0 0 16px' }}>
+              <div
+                className="viewer-markdown"
+                style={{ padding: '16px', maxWidth: 'none', height: 'auto', overflow: 'visible' }}
+                dangerouslySetInnerHTML={{ __html: renderAnswerMarkdown(aiAnswer.answer) }}
+              />
+              {aiAnswer.sources.length > 0 && (
+                <>
+                  <div style={{
+                    padding: '8px 12px',
+                    fontSize: 11,
+                    fontWeight: 600,
+                    textTransform: 'uppercase',
+                    color: 'var(--text-muted)',
+                    borderTop: '1px solid var(--panel-border)',
+                    marginTop: 8,
+                  }}>
+                    Sources ({aiAnswer.sources.length})
+                  </div>
+                  {aiAnswer.sources.map(r => renderResult(r))}
+                </>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      <div className="search-results">
-        {filteredResults.length > 0
-          ? displayGroups
-            ? displayGroups.map(group => (
-                <div key={group.projectId} className="result-group">
-                  <div className="result-group-header">{group.projectName}</div>
-                  {group.results.map(r => renderResult(r))}
-                </div>
-              ))
-            : filteredResults.map(r => renderResult(r))
-          : !searching && (
-              <div className="empty-state">
-                <div className="empty-state-icon">🔍</div>
-                <div className="empty-state-title">
-                  {searched ? 'No results found' : 'Search your files'}
-                </div>
-                <div className="empty-state-desc">
-                  {searched
-                    ? 'Try different keywords or reindex the project.'
-                    : 'Type a query and press Enter.'}
-                </div>
-              </div>
-            )}
-      </div>
+      {/* Normal search results */}
+      {!isAskMode && (
+        <>
+          {searched && !searching && (
+            <div className="search-results-header">
+              {totalFiltered > 0
+                ? `${totalFiltered} result${totalFiltered !== 1 ? 's' : ''}`
+                : 'No results'}
+            </div>
+          )}
+
+          <div className="search-results">
+            {filteredResults.length > 0
+              ? displayGroups
+                ? displayGroups.map(group => (
+                    <div key={group.projectId} className="result-group">
+                      <div className="result-group-header">{group.projectName}</div>
+                      {group.results.map(r => renderResult(r))}
+                    </div>
+                  ))
+                : filteredResults.map(r => renderResult(r))
+              : !searching && (
+                  <div className="empty-state">
+                    <div className="empty-state-icon">🔍</div>
+                    <div className="empty-state-title">
+                      {searched ? 'No results found' : 'Search your files'}
+                    </div>
+                    <div className="empty-state-desc">
+                      {searched
+                        ? 'Try different keywords or reindex the project.'
+                        : 'Type a query and press Enter.'}
+                    </div>
+                  </div>
+                )}
+          </div>
+        </>
+      )}
     </div>
   );
 }

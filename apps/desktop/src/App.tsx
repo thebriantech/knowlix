@@ -6,6 +6,8 @@ import type { Project, SearchResult } from './types';
 import { ProjectSidebar } from './components/ProjectSidebar';
 import { SearchPanel } from './components/SearchPanel';
 import { FileViewer } from './components/FileViewer';
+import { AiSettingsModal } from './components/AiSettingsModal';
+import { WikiViewer } from './components/WikiViewer';
 
 interface Toast {
   id: number;
@@ -25,6 +27,10 @@ export default function App() {
   const [selectedResult, setSelectedResult] = useState<SearchResult | null>(null);
   const [toasts, setToasts] = useState<Toast[]>([]);
   const timersRef = useRef<Map<number, ReturnType<typeof setTimeout>>>(new Map());
+
+  const [showAiSettings, setShowAiSettings] = useState(false);
+  const [wikiMode, setWikiMode] = useState(false);
+  const [globalWikiMode, setGlobalWikiMode] = useState(false);
 
   const pushToast = useCallback((kind: Toast['kind'], file: string) => {
     const id = ++toastSeq;
@@ -71,7 +77,22 @@ export default function App() {
   function handleSelectProject(p: Project) {
     setSelectedProject(p);
     setSelectedResult(null);
+    setWikiMode(false);
+    setGlobalWikiMode(false);
   }
+
+  function handleShowWiki(global: boolean) {
+    setWikiMode(true);
+    setGlobalWikiMode(global);
+    setSelectedResult(null);
+  }
+
+  function handleCloseWiki() {
+    setWikiMode(false);
+    setGlobalWikiMode(false);
+  }
+
+  const showWiki = wikiMode || globalWikiMode;
 
   return (
     <div className="app">
@@ -81,17 +102,67 @@ export default function App() {
           selectedProject={selectedProject}
           onSelect={handleSelectProject}
           onProjectsChange={loadProjects}
+          onShowWiki={handleShowWiki}
         />
+
+        {/* AI Settings gear button at bottom of sidebar */}
+        <div className="sidebar-ai-footer">
+          <button
+            className="sidebar-ai-btn"
+            onClick={() => setShowAiSettings(true)}
+            title="AI Settings"
+          >
+            <span>⚙</span> AI Settings
+          </button>
+        </div>
       </nav>
 
       <SearchPanel
         projects={projects}
         selectedProject={selectedProject}
-        onResultSelect={setSelectedResult}
+        onResultSelect={result => {
+          setSelectedResult(result);
+          setWikiMode(false);
+          setGlobalWikiMode(false);
+        }}
         selectedResultId={selectedResult?.chunk_id ?? null}
       />
 
-      <FileViewer result={selectedResult} />
+      {showWiki ? (
+        <div className="viewer">
+          <div className="viewer-header">
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={handleCloseWiki}
+              style={{ marginRight: 8 }}
+            >
+              ← Back
+            </button>
+            <span className="viewer-filename">
+              {globalWikiMode
+                ? 'Global Wiki'
+                : selectedProject
+                ? `${selectedProject.name} Wiki`
+                : 'Wiki'}
+            </span>
+          </div>
+          <div className="viewer-body" style={{ overflow: 'hidden' }}>
+            <WikiViewer
+              project={globalWikiMode ? null : selectedProject}
+              isGlobal={globalWikiMode}
+            />
+          </div>
+        </div>
+      ) : (
+        <FileViewer result={selectedResult} />
+      )}
+
+      {showAiSettings && (
+        <AiSettingsModal
+          open={showAiSettings}
+          onClose={() => setShowAiSettings(false)}
+        />
+      )}
 
       <div className="toast-container">
         {toasts.map(t => (

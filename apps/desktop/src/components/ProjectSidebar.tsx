@@ -10,6 +10,7 @@ interface Props {
   selectedProject: Project | null;
   onSelect: (p: Project) => void;
   onProjectsChange: () => void;
+  onShowWiki: (global: boolean) => void;
 }
 
 function formatLastIndexed(iso: string | null): string {
@@ -24,7 +25,7 @@ function formatLastIndexed(iso: string | null): string {
   return d.toLocaleDateString();
 }
 
-export function ProjectSidebar({ projects, selectedProject, onSelect, onProjectsChange }: Props) {
+export function ProjectSidebar({ projects, selectedProject, onSelect, onProjectsChange, onShowWiki }: Props) {
   const [newName, setNewName] = useState('');
   const [newDesc, setNewDesc] = useState('');
   const [creating, setCreating] = useState(false);
@@ -242,6 +243,25 @@ export function ProjectSidebar({ projects, selectedProject, onSelect, onProjects
             </button>
             <button className="btn btn-danger btn-sm" onClick={() => deleteProject(selectedProject)}>
               Delete
+            </button>
+          </div>
+
+          <div className="project-actions" style={{ marginTop: 4 }}>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => onShowWiki(false)}
+              style={{ flex: 1 }}
+              title="View or generate wiki for this project"
+            >
+              📖 Wiki
+            </button>
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => onShowWiki(true)}
+              style={{ flex: 1 }}
+              title="View global wiki across all projects"
+            >
+              🌐 Global
             </button>
           </div>
 

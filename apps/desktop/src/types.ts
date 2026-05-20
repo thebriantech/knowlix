@@ -66,4 +66,48 @@ export interface EmbeddingModelStatus {
   error?: string;
 }
 
-export type SearchMode = 'keyword' | 'semantic' | 'hybrid';
+export type SearchMode = 'keyword' | 'semantic' | 'hybrid' | 'ask';
+
+// ── AI / Phase 5 ──────────────────────────────────────────
+
+export interface AiConfig {
+  provider: 'none' | 'ollama' | 'api';
+  ollama_model: string | null;
+  ollama_url: string;
+  api_key: string | null;
+  api_base_url: string;
+  api_model: string | null;
+}
+
+export type AiTier = 'none' | 'local' | 'api';
+
+export interface AiHealthStatus {
+  tier: AiTier;
+  model: string | null;
+  reachable: boolean;
+  error: string | null;
+}
+
+export interface AiAnswer {
+  answer: string;
+  sources: SearchResult[];
+  model: string;
+  query: string;
+}
+
+export interface WikiPage {
+  id: string;
+  project_id: string | null;
+  title: string;
+  content: string;
+  tags: string[];
+  source_hashes: string[];
+  created_at: string;
+  updated_at: string;
+}
+
+export interface WikiProgress {
+  stage: string;
+  current: number;
+  total: number;
+}

@@ -39,8 +39,22 @@ pub fn run() {
             let embeddings_cache = data_dir.join("cache").join("embeddings");
             knowlix_storage::set_embedding_cache_dir(embeddings_cache);
 
-            tauri::async_runtime::block_on(knowlix_storage::init_with_dir(data_dir))
-                .expect("Storage initialization failed");
+            tauri::async_runtime::block_on(async {
+                knowlix_storage::init_with_dir(data_dir)
+                    .await
+                    .expect("Storage initialization failed");
+
+                // Load AI config and warm up the AI agent cache
+                match knowlix_storage::get_ai_config().await {
+                    Ok(config) => {
+                        knowlix_ai_agent::update_config(config);
+                    }
+                    Err(e) => {
+                        tracing::warn!("Failed to load AI config: {e}");
+                    }
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -77,6 +91,8 @@ pub fn run() {
             commands::ai_agent::answer_question,
             commands::ai_agent::get_ai_tier,
             commands::ai_agent::health_check,
+            commands::ai_agent::get_ai_config,
+            commands::ai_agent::save_ai_config,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
