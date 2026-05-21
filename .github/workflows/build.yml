@@ -7,6 +7,9 @@ on:
     branches: [main]
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   test:
     runs-on: ubuntu-22.04
@@ -14,6 +17,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
 
       - name: Install Linux system deps
         run: |
@@ -48,6 +55,17 @@ jobs:
           node-version: 26
 
       - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: '. -> target'
+
+      - name: Cache node modules
+        uses: actions/cache@v4
+        with:
+          path: apps/desktop/node_modules
+          key: node-${{ runner.os }}-${{ hashFiles('apps/desktop/package-lock.json') }}
+          restore-keys: node-${{ runner.os }}-
 
       - name: Install Linux system deps
         if: matrix.platform == 'ubuntu-22.04'
