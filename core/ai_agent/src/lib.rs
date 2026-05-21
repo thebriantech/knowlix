@@ -1,6 +1,9 @@
 use std::sync::{Mutex, OnceLock};
 
-use knowlix_common::{AiAnswer, AiConfig, AiHealthStatus, AiProvider, AiTier, KnowlixError, Result, SearchResult};
+use knowlix_common::{
+    AiAnswer, AiConfig, AiHealthStatus, AiProvider, AiTier, KnowlixError, Result, SearchResult,
+    TokenUsage,
+};
 use serde::Deserialize;
 
 // ---- Config cache ----
@@ -49,9 +52,7 @@ pub async fn health_check() -> Result<AiHealthStatus> {
             let model = config.ollama_model.clone();
             match ollama_list_models(&url).await {
                 Ok(models) => {
-                    let resolved = model
-                        .clone()
-                        .or_else(|| models.into_iter().next());
+                    let resolved = model.clone().or_else(|| models.into_iter().next());
                     Ok(AiHealthStatus {
                         tier: AiTier::Local,
                         model: resolved,
@@ -67,12 +68,37 @@ pub async fn health_check() -> Result<AiHealthStatus> {
                 }),
             }
         }
-        AiProvider::Api => Ok(AiHealthStatus {
-            tier: AiTier::Api,
-            model: config.api_model,
-            reachable: false,
-            error: Some("API provider not yet implemented (Phase 6)".into()),
-        }),
+        AiProvider::Api => {
+            let url = normalize_base_url(&config.api_base_url);
+            let key = match config.api_key.as_deref() {
+                Some(k) if !k.is_empty() => k.to_string(),
+                _ => {
+                    return Ok(AiHealthStatus {
+                        tier: AiTier::Api,
+                        model: config.api_model,
+                        reachable: false,
+                        error: Some("API key not configured".into()),
+                    })
+                }
+            };
+            match api_list_models(&url, &key).await {
+                Ok(models) => {
+                    let resolved = config.api_model.clone().or_else(|| models.into_iter().next());
+                    Ok(AiHealthStatus {
+                        tier: AiTier::Api,
+                        model: resolved,
+                        reachable: true,
+                        error: None,
+                    })
+                }
+                Err(e) => Ok(AiHealthStatus {
+                    tier: AiTier::Api,
+                    model: config.api_model,
+                    reachable: false,
+                    error: Some(e.to_string()),
+                }),
+            }
+        }
     }
 }
 
@@ -81,57 +107,91 @@ pub async fn expand_query(query: &str) -> Result<Vec<String>> {
     if config.provider == AiProvider::None {
         return Ok(vec![query.to_string()]);
     }
-    if config.provider != AiProvider::Ollama {
-        return Ok(vec![query.to_string()]);
-    }
-
-    let model = match &config.ollama_model {
-        Some(m) if !m.is_empty() => m.clone(),
-        _ => return Ok(vec![query.to_string()]),
-    };
 
     let prompt = format!(
         "Generate 3 alternative search queries for: \"{query}\"\nReturn ONLY the queries, one per line, no numbering, no explanation."
     );
 
-    match ollama_generate(&config.ollama_url, &model, &prompt).await {
-        Ok(text) => {
-            let mut variants: Vec<String> = text
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .take(3)
-                .collect();
-            if variants.is_empty() {
-                variants.push(query.to_string());
+    let text = match config.provider {
+        AiProvider::Ollama => {
+            let model = match &config.ollama_model {
+                Some(m) if !m.is_empty() => m.clone(),
+                _ => return Ok(vec![query.to_string()]),
+            };
+            match ollama_generate(&config.ollama_url, &model, &prompt).await {
+                Ok((t, _)) => t,
+                Err(e) => {
+                    tracing::warn!("expand_query (ollama) failed: {e}");
+                    return Ok(vec![query.to_string()]);
+                }
             }
-            Ok(variants)
         }
-        Err(e) => {
-            tracing::warn!("expand_query failed, using original: {e}");
-            Ok(vec![query.to_string()])
+        AiProvider::Api => {
+            let url = normalize_base_url(&config.api_base_url);
+            let key = match config.api_key.as_deref() {
+                Some(k) if !k.is_empty() => k.to_string(),
+                _ => return Ok(vec![query.to_string()]),
+            };
+            let model = match config.api_model.as_deref() {
+                Some(m) if !m.is_empty() => m.to_string(),
+                _ => return Ok(vec![query.to_string()]),
+            };
+            match api_generate(&url, &key, &model, &prompt).await {
+                Ok((t, _)) => t,
+                Err(e) => {
+                    tracing::warn!("expand_query (api) failed: {e}");
+                    return Ok(vec![query.to_string()]);
+                }
+            }
         }
+        AiProvider::None => return Ok(vec![query.to_string()]),
+    };
+
+    let mut variants: Vec<String> = text
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .take(3)
+        .collect();
+    if variants.is_empty() {
+        variants.push(query.to_string());
     }
+    Ok(variants)
 }
 
 pub async fn answer_question(query: &str, project_id: Option<&str>) -> Result<AiAnswer> {
     let config = get_config();
-    if config.provider == AiProvider::None {
-        return Err(KnowlixError::AiNotConfigured);
-    }
-    if config.provider != AiProvider::Ollama {
-        return Err(KnowlixError::Ai("API provider not yet implemented (Phase 6)".into()));
-    }
-    let model = config
-        .ollama_model
-        .clone()
-        .filter(|m| !m.is_empty())
-        .ok_or_else(|| KnowlixError::Ai("No Ollama model configured".into()))?;
 
-    // Expand query to variants (graceful: fall back to original)
+    let (model, base_url, api_key) = match &config.provider {
+        AiProvider::None => return Err(KnowlixError::AiNotConfigured),
+        AiProvider::Ollama => {
+            let model = config
+                .ollama_model
+                .clone()
+                .filter(|m| !m.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("No Ollama model configured".into()))?;
+            (model, config.ollama_url.clone(), None::<String>)
+        }
+        AiProvider::Api => {
+            let key = config
+                .api_key
+                .clone()
+                .filter(|k| !k.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("API key not configured".into()))?;
+            let model = config
+                .api_model
+                .clone()
+                .filter(|m| !m.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("API model not configured".into()))?;
+            let url = normalize_base_url(&config.api_base_url);
+            (model, url, Some(key))
+        }
+    };
+
+    // Expand query (graceful fallback)
     let variants = expand_query(query).await.unwrap_or_else(|_| vec![query.to_string()]);
 
-    // Search hybrid for each variant, collect unique chunks by chunk_id, top 8 by score
+    // Gather unique top-k chunks via hybrid search across all variants
     let mut seen_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
     let mut all_results: Vec<SearchResult> = Vec::new();
 
@@ -148,73 +208,91 @@ pub async fn answer_question(query: &str, project_id: Option<&str>) -> Result<Ai
         }
     }
 
-    // Sort by score desc, keep top 8
     all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
     all_results.truncate(8);
 
-    if all_results.is_empty() {
-        // No context found — still ask the model
-        let prompt = format!(
-            "Answer using ONLY the provided context. If context insufficient, say so.\n\nQuestion: {query}\n\nContext:\n(no relevant context found)\n\nAnswer in markdown, cite sources with [N]."
-        );
-        let answer = ollama_generate(&config.ollama_url, &model, &prompt).await?;
-        return Ok(AiAnswer {
-            answer,
-            sources: vec![],
-            model,
-            query: query.to_string(),
-        });
-    }
-
     // Build context string
-    let context: String = all_results
-        .iter()
-        .enumerate()
-        .map(|(i, r)| {
-            let filename = r.file_path.split('/').last()
-                .unwrap_or(&r.file_path);
-            format!("[{}] {}\n{}", i + 1, filename, r.snippet)
-        })
-        .collect::<Vec<_>>()
-        .join("\n\n");
+    let context: String = if all_results.is_empty() {
+        "(no relevant context found)".to_string()
+    } else {
+        all_results
+            .iter()
+            .enumerate()
+            .map(|(i, r)| {
+                let filename = r.file_path.split('/').last().unwrap_or(&r.file_path);
+                format!("[{}] {}\n{}", i + 1, filename, r.snippet)
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n")
+    };
 
     let prompt = format!(
         "Answer using ONLY the provided context. If context insufficient, say so.\n\nQuestion: {query}\n\nContext:\n{context}\n\nAnswer in markdown, cite sources with [N]."
     );
 
-    let answer = ollama_generate(&config.ollama_url, &model, &prompt).await?;
+    let (answer, token_usage) = match config.provider {
+        AiProvider::Ollama => ollama_generate(&base_url, &model, &prompt).await?,
+        AiProvider::Api => {
+            let key = api_key.unwrap();
+            api_generate(&base_url, &key, &model, &prompt).await?
+        }
+        AiProvider::None => unreachable!(),
+    };
 
     Ok(AiAnswer {
         answer,
         sources: all_results,
         model,
         query: query.to_string(),
+        token_usage,
     })
 }
 
-/// Public: generate text via Ollama. Used by wiki module.
+/// Generate text for wiki — used by wiki module.
 pub async fn generate_text(prompt: &str) -> Result<String> {
     let config = get_config();
-    if config.provider == AiProvider::None {
-        return Err(KnowlixError::AiNotConfigured);
+    match config.provider {
+        AiProvider::None => Err(KnowlixError::AiNotConfigured),
+        AiProvider::Ollama => {
+            let model = config
+                .ollama_model
+                .clone()
+                .filter(|m| !m.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("No Ollama model configured".into()))?;
+            let (text, _) = ollama_generate(&config.ollama_url, &model, prompt).await?;
+            Ok(text)
+        }
+        AiProvider::Api => {
+            let url = normalize_base_url(&config.api_base_url);
+            let key = config
+                .api_key
+                .clone()
+                .filter(|k| !k.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("API key not configured".into()))?;
+            let model = config
+                .api_model
+                .clone()
+                .filter(|m| !m.is_empty())
+                .ok_or_else(|| KnowlixError::Ai("API model not configured".into()))?;
+            let (text, _) = api_generate(&url, &key, &model, prompt).await?;
+            Ok(text)
+        }
     }
-    if config.provider != AiProvider::Ollama {
-        return Err(KnowlixError::Ai("API provider not yet implemented (Phase 6)".into()));
-    }
-    let model = config
-        .ollama_model
-        .clone()
-        .filter(|m| !m.is_empty())
-        .ok_or_else(|| KnowlixError::Ai("No Ollama model configured".into()))?;
-
-    ollama_generate(&config.ollama_url, &model, prompt).await
 }
 
 // ---- Internal helpers ----
 
+fn normalize_base_url(url: &str) -> String {
+    url.trim_end_matches('/').to_string()
+}
+
+// ---- Ollama helpers ----
+
 #[derive(Deserialize)]
 struct OllamaGenerateResponse {
     response: String,
+    eval_count: Option<u32>,
+    prompt_eval_count: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -227,7 +305,11 @@ struct OllamaModelEntry {
     name: String,
 }
 
-async fn ollama_generate(url: &str, model: &str, prompt: &str) -> Result<String> {
+async fn ollama_generate(
+    url: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<(String, Option<TokenUsage>)> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(120))
         .build()
@@ -257,7 +339,16 @@ async fn ollama_generate(url: &str, model: &str, prompt: &str) -> Result<String>
         .await
         .map_err(|e| KnowlixError::Ai(format!("Ollama response parse error: {e}")))?;
 
-    Ok(parsed.response)
+    let token_usage = match (parsed.prompt_eval_count, parsed.eval_count) {
+        (Some(p), Some(c)) => Some(TokenUsage {
+            prompt_tokens: p,
+            completion_tokens: c,
+            total_tokens: p + c,
+        }),
+        _ => None,
+    };
+
+    Ok((parsed.response, token_usage))
 }
 
 async fn ollama_list_models(url: &str) -> Result<Vec<String>> {
@@ -283,4 +374,118 @@ async fn ollama_list_models(url: &str) -> Result<Vec<String>> {
         .map_err(|e| KnowlixError::Ai(format!("Ollama tags parse error: {e}")))?;
 
     Ok(parsed.models.into_iter().map(|m| m.name).collect())
+}
+
+// ---- OpenAI-compatible API helpers ----
+
+#[derive(Deserialize)]
+struct ApiChatResponse {
+    choices: Vec<ApiChatChoice>,
+    usage: Option<ApiUsage>,
+}
+
+#[derive(Deserialize)]
+struct ApiChatChoice {
+    message: ApiChatMessage,
+}
+
+#[derive(Deserialize)]
+struct ApiChatMessage {
+    content: String,
+}
+
+#[derive(Deserialize)]
+struct ApiUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
+    total_tokens: u32,
+}
+
+#[derive(Deserialize)]
+struct ApiModelsResponse {
+    data: Vec<ApiModelEntry>,
+}
+
+#[derive(Deserialize)]
+struct ApiModelEntry {
+    id: String,
+}
+
+async fn api_generate(
+    base_url: &str,
+    api_key: &str,
+    model: &str,
+    prompt: &str,
+) -> Result<(String, Option<TokenUsage>)> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .map_err(|e| KnowlixError::Ai(format!("HTTP client error: {e}")))?;
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 2000,
+    });
+
+    let resp = client
+        .post(format!("{base_url}/chat/completions"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("Content-Type", "application/json")
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| KnowlixError::AiProviderUnreachable(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let text = resp.text().await.unwrap_or_default();
+        return Err(KnowlixError::Ai(format!("API error {status}: {text}")));
+    }
+
+    let parsed: ApiChatResponse = resp
+        .json()
+        .await
+        .map_err(|e| KnowlixError::Ai(format!("API response parse error: {e}")))?;
+
+    let content = parsed
+        .choices
+        .into_iter()
+        .next()
+        .map(|c| c.message.content)
+        .ok_or_else(|| KnowlixError::Ai("Empty response from API".into()))?;
+
+    let token_usage = parsed.usage.map(|u| TokenUsage {
+        prompt_tokens: u.prompt_tokens,
+        completion_tokens: u.completion_tokens,
+        total_tokens: u.total_tokens,
+    });
+
+    Ok((content, token_usage))
+}
+
+async fn api_list_models(base_url: &str, api_key: &str) -> Result<Vec<String>> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| KnowlixError::Ai(format!("HTTP client error: {e}")))?;
+
+    let resp = client
+        .get(format!("{base_url}/models"))
+        .header("Authorization", format!("Bearer {api_key}"))
+        .send()
+        .await
+        .map_err(|e| KnowlixError::AiProviderUnreachable(e.to_string()))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        return Err(KnowlixError::Ai(format!("API /models returned {status}")));
+    }
+
+    let parsed: ApiModelsResponse = resp
+        .json()
+        .await
+        .map_err(|e| KnowlixError::Ai(format!("API models parse error: {e}")))?;
+
+    Ok(parsed.data.into_iter().map(|m| m.id).collect())
 }

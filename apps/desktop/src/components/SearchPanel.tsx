@@ -346,6 +346,22 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
                 style={{ padding: '16px', maxWidth: 'none', height: 'auto', overflow: 'visible' }}
                 dangerouslySetInnerHTML={{ __html: renderAnswerMarkdown(aiAnswer.answer) }}
               />
+              <div style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                padding: '6px 12px',
+                fontSize: 11,
+                color: 'var(--text-muted)',
+                borderTop: '1px solid var(--panel-border)',
+              }}>
+                <span>{aiAnswer.model}</span>
+                {aiAnswer.token_usage && (
+                  <span title={`Prompt: ${aiAnswer.token_usage.prompt_tokens} · Completion: ${aiAnswer.token_usage.completion_tokens}`}>
+                    {aiAnswer.token_usage.total_tokens} tokens
+                  </span>
+                )}
+              </div>
               {aiAnswer.sources.length > 0 && (
                 <>
                   <div style={{
@@ -354,8 +370,6 @@ export function SearchPanel({ projects, selectedProject, onResultSelect, selecte
                     fontWeight: 600,
                     textTransform: 'uppercase',
                     color: 'var(--text-muted)',
-                    borderTop: '1px solid var(--panel-border)',
-                    marginTop: 8,
                   }}>
                     Sources ({aiAnswer.sources.length})
                   </div>

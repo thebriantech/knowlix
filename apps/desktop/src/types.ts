@@ -88,11 +88,18 @@ export interface AiHealthStatus {
   error: string | null;
 }
 
+export interface TokenUsage {
+  prompt_tokens: number;
+  completion_tokens: number;
+  total_tokens: number;
+}
+
 export interface AiAnswer {
   answer: string;
   sources: SearchResult[];
   model: string;
   query: string;
+  token_usage: TokenUsage | null;
 }
 
 export interface WikiPage {
