@@ -48,6 +48,8 @@ tempfile = "3"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 dirs = "5"
+aes-gcm = { version = "0.10", features = ["std"] }
+base64 = "0.22"
 
 [profile.release]
 opt-level = 3

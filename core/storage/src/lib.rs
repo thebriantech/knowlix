@@ -858,6 +858,76 @@ pub async fn search_vector(
         .collect())
 }
 
+// ---- API key encryption ----
+
+fn get_machine_id() -> String {
+    for path in &["/etc/machine-id", "/var/lib/dbus/machine-id"] {
+        if let Ok(id) = std::fs::read_to_string(path) {
+            let trimmed = id.trim().to_string();
+            if !trimmed.is_empty() {
+                return trimmed;
+            }
+        }
+    }
+    // Fallback: app data dir path is user-specific on all platforms
+    get_data_dir()
+        .map(|d| d.to_string_lossy().to_string())
+        .unwrap_or_else(|_| "knowlix-fallback-machine-id".to_string())
+}
+
+fn derive_encryption_key() -> [u8; 32] {
+    use sha2::Digest;
+    let machine_id = get_machine_id();
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(b"knowlix-api-key-v1:");
+    hasher.update(machine_id.as_bytes());
+    hasher.finalize().into()
+}
+
+fn encrypt_api_key(plaintext: &str) -> Result<String> {
+    use aes_gcm::{
+        aead::{Aead, AeadCore, KeyInit, OsRng},
+        Aes256Gcm, Key,
+    };
+    use base64::Engine;
+
+    let key_bytes = derive_encryption_key();
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
+
+    let ciphertext = cipher
+        .encrypt(&nonce, plaintext.as_bytes())
+        .map_err(|e| KnowlixError::Storage(format!("API key encryption failed: {e}")))?;
+
+    let mut combined = Vec::with_capacity(12 + ciphertext.len());
+    combined.extend_from_slice(nonce.as_slice());
+    combined.extend_from_slice(&ciphertext);
+
+    Ok(base64::engine::general_purpose::STANDARD.encode(&combined))
+}
+
+fn decrypt_api_key(encoded: &str) -> Option<String> {
+    use aes_gcm::{
+        aead::{Aead, KeyInit},
+        Aes256Gcm, Key, Nonce,
+    };
+    use base64::Engine;
+
+    let combined = base64::engine::general_purpose::STANDARD.decode(encoded).ok()?;
+    if combined.len() < 12 {
+        return None;
+    }
+
+    let key_bytes = derive_encryption_key();
+    let key = Key::<Aes256Gcm>::from_slice(&key_bytes);
+    let cipher = Aes256Gcm::new(key);
+    let nonce = Nonce::from_slice(&combined[..12]);
+
+    let plaintext = cipher.decrypt(nonce, &combined[12..]).ok()?;
+    String::from_utf8(plaintext).ok()
+}
+
 // ---- AI Config ----
 
 pub async fn get_ai_config() -> Result<AiConfig> {
@@ -871,14 +941,18 @@ pub async fn get_ai_config() -> Result<AiConfig> {
     .map_err(|e| KnowlixError::Storage(e.to_string()))?;
 
     match row {
-        Some(r) => Ok(AiConfig {
-            provider: str_to_ai_provider(&r.provider),
-            ollama_model: r.ollama_model,
-            ollama_url: r.ollama_url,
-            api_key: r.api_key,
-            api_base_url: r.api_base_url,
-            api_model: r.api_model,
-        }),
+        Some(r) => {
+            // Decrypt api_key if present
+            let api_key = r.api_key.as_deref().and_then(decrypt_api_key);
+            Ok(AiConfig {
+                provider: str_to_ai_provider(&r.provider),
+                ollama_model: r.ollama_model,
+                ollama_url: r.ollama_url,
+                api_key,
+                api_base_url: r.api_base_url,
+                api_model: r.api_model,
+            })
+        }
         None => Ok(AiConfig::default()),
     }
 }
@@ -886,6 +960,13 @@ pub async fn get_ai_config() -> Result<AiConfig> {
 pub async fn save_ai_config(config: &AiConfig) -> Result<()> {
     let s = get_state()?;
     let provider = ai_provider_to_str(&config.provider);
+    // Encrypt api_key before persisting; store None if key is empty
+    let encrypted_key = config
+        .api_key
+        .as_deref()
+        .filter(|k| !k.is_empty())
+        .map(|k| encrypt_api_key(k))
+        .transpose()?;
     sqlx::query(
         "INSERT INTO ai_config (id, provider, ollama_model, ollama_url, api_key, api_base_url, api_model)
          VALUES (1, ?, ?, ?, ?, ?, ?)
@@ -900,7 +981,7 @@ pub async fn save_ai_config(config: &AiConfig) -> Result<()> {
     .bind(provider)
     .bind(&config.ollama_model)
     .bind(&config.ollama_url)
-    .bind(&config.api_key)
+    .bind(&encrypted_key)
     .bind(&config.api_base_url)
     .bind(&config.api_model)
     .execute(&s.db)

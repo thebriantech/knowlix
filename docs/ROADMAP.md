@@ -67,35 +67,32 @@ Milestone: user can search "deployment config" across all their projects at once
 
 ---
 
-## Phase 5 — Local LLM (Tier 1)
+## Phase 5 — Local LLM (Tier 1) ✅ COMPLETE
 
 Goal: wiki and Q&A via local Ollama, fully offline.
 
-Storage infrastructure ready: `ai_config` table, `wiki_pages` table, `AiConfig` / `WikiPage` models, wiki and ai_agent command scaffolding — all in place. Core logic not yet implemented.
-
-- [ ] Ollama provider integration (detect, health check, model list)
-- [ ] Query expansion (rewrite query into variants before search)
-- [ ] Natural language Q&A with RAG (retrieve chunks → Ollama → answer)
-- [ ] Per-project wiki generation (user-triggered)
-- [ ] Global wiki generation (from project wikis)
-- [ ] Wiki viewer UI
-- [ ] AI settings UI (provider selection, model picker, health status)
+- [x] Ollama provider integration (detect, health check, model list)
+- [x] Query expansion (rewrite query into variants before search)
+- [x] Natural language Q&A with RAG (retrieve chunks → Ollama → answer)
+- [x] Per-project wiki generation (user-triggered)
+- [x] Global wiki generation (from project wikis)
+- [x] Wiki viewer UI
+- [x] AI settings UI (provider selection, model picker, health status)
 
 Milestone: user with Ollama installed gets natural language answers and auto-generated wiki.
 
 ---
 
-## Phase 6 — API Key (Tier 2)
+## Phase 6 — API Key (Tier 2) ✅ COMPLETE
 
 Goal: higher quality Q&A and wiki via external LLM APIs.
 
-Storage infrastructure ready: `AiConfig` model already has `api_key`, `api_base_url`, `api_model` fields persisted in SQLite.
-
-- [ ] ApiProvider (OpenAI-compatible, configurable base URL)
-- [ ] API key storage (encrypted at rest)
-- [ ] Model selection (gpt-4o, claude-sonnet, custom)
-- [ ] Quality comparison UX (optional: show Tier 1 vs Tier 2 answer)
-- [ ] Token usage tracking and cost estimation display
+- [x] ApiProvider (OpenAI-compatible, configurable base URL)
+- [x] API key storage (encrypted at rest — AES-256-GCM with machine-derived key)
+- [x] Model selection (gpt-4o, claude-sonnet, custom — text input with suggestions)
+- [x] Token usage tracking display (prompt + completion + total tokens shown after answer)
+- [ ] Quality comparison UX (optional: show Tier 1 vs Tier 2 answer side-by-side)
+- [ ] Cost estimation display (requires per-model pricing config)
 
 Milestone: user with OpenAI/Anthropic key gets best-quality Q&A.
 
